@@ -20,6 +20,8 @@ env:
   ANDROID_API_LEVEL: "35"
   ANDROID_BUILD_TOOLS: "35.0.0"
   FAIL_ON_TEST_FAILURE: "true"
+  TERM: "dumb"
+  GRADLE_OPTS: "-Dorg.gradle.console=plain -Dkotlin.colors.enabled=false"
 
 jobs:
   build:
@@ -66,7 +68,9 @@ jobs:
         continue-on-error: true
         shell: bash
         run: |
+          set +e
           set -o pipefail
+
           ./gradlew clean assembleDebug \
             --console=plain \
             --stacktrace \
@@ -74,19 +78,58 @@ jobs:
             --no-daemon \
             2>&1 | tee gradle-build.log
 
+          BUILD_EXIT=${PIPESTATUS[0]}
+          echo "exit_code=$BUILD_EXIT" >> "$GITHUB_OUTPUT"
+
+          # Remove ANSI control sequences so compiler diagnostics are searchable.
+          sed -E \
+            's/\x1B(\[[0-9;?]*[ -\/]*[@-~]|\][^\a]*(\a|\x1B\\))//g' \
+            gradle-build.log > gradle-build-clean.log || \
+            cp gradle-build.log gradle-build-clean.log
+
+          if [[ "$BUILD_EXIT" -ne 0 ]]; then
+            echo
+            echo "========== Kotlin/compiler diagnostics =========="
+
+            grep -nEi \
+              '(^|[[:space:]])(e:|error:)[[:space:]]|file:/{2,3}.*\.kt(:|\()|\.kt:[0-9]+|\.kt \([0-9]+|unresolved reference|type mismatch|cannot infer|no value passed|too many arguments|conflicting overloads|overload resolution ambiguity|expecting (an element|expression|member declaration)|redeclaration|unresolved supertypes|cannot access|is not abstract and does not implement|none of the following candidates' \
+              gradle-build-clean.log | head -n 300 || true
+
+            echo
+            echo "========== Failed task and surrounding context =========="
+
+            grep -nEi -B 20 -A 80 \
+              'execution failed for task|compilation error|what went wrong|failure: build failed with an exception' \
+              gradle-build-clean.log | head -n 500 || true
+          fi
+
+          exit "$BUILD_EXIT"
+
       - name: Run unit tests
         id: tests
         if: steps.build.outcome == 'success'
         continue-on-error: true
         shell: bash
         run: |
+          set +e
           set -o pipefail
+
           ./gradlew testDebugUnitTest \
             --console=plain \
             --stacktrace \
             --warning-mode all \
             --no-daemon \
             2>&1 | tee gradle-tests.log
+
+          TEST_EXIT=${PIPESTATUS[0]}
+          echo "exit_code=$TEST_EXIT" >> "$GITHUB_OUTPUT"
+
+          sed -E \
+            's/\x1B(\[[0-9;?]*[ -\/]*[@-~]|\][^\a]*(\a|\x1B\\))//g' \
+            gradle-tests.log > gradle-tests-clean.log || \
+            cp gradle-tests.log gradle-tests-clean.log
+
+          exit "$TEST_EXIT"
 
       - name: Create Gradle failure report
         if: always() && (steps.build.outcome == 'failure' || steps.tests.outcome == 'failure')
@@ -95,33 +138,49 @@ jobs:
           REPORT="gradle-failure-report.txt"
           : > "$REPORT"
 
-          for LOG in gradle-build.log gradle-tests.log; do
-            if [[ ! -f "$LOG" ]]; then
-              continue
-            fi
+          for LOG in gradle-build-clean.log gradle-tests-clean.log; do
+            [[ -f "$LOG" ]] || continue
 
             {
               echo "============================================================"
-              echo "Compiler errors found in $LOG"
+              echo "Actionable compiler/build diagnostics from $LOG"
               echo "============================================================"
             } >> "$REPORT"
 
             grep -nEi \
-              '(^|[[:space:]])e: |\.kt:[0-9]+|error:|unresolved reference|type mismatch|cannot infer|no value passed|too many arguments|conflicting overloads|execution failed for task|what went wrong' \
-              "$LOG" >> "$REPORT" || true
+              '(^|[[:space:]])(e:|error:)[[:space:]]|file:/{2,3}.*\.kt(:|\()|\.kt:[0-9]+|\.kt \([0-9]+|unresolved reference|type mismatch|cannot infer|no value passed|too many arguments|conflicting overloads|overload resolution ambiguity|expecting (an element|expression|member declaration)|redeclaration|unresolved supertypes|cannot access|is not abstract and does not implement|none of the following candidates|execution failed for task|what went wrong' \
+              "$LOG" | head -n 500 >> "$REPORT" || true
 
             {
               echo
               echo "============================================================"
-              echo "Final 300 lines of $LOG"
+              echo "Context around the failed task in $LOG"
               echo "============================================================"
             } >> "$REPORT"
 
-            tail -n 300 "$LOG" >> "$REPORT" || true
+            grep -nEi -B 30 -A 120 \
+              'execution failed for task|compilation error|what went wrong|failure: build failed with an exception' \
+              "$LOG" | head -n 800 >> "$REPORT" || true
+
+            {
+              echo
+              echo "============================================================"
+              echo "First 250 lines of $LOG"
+              echo "============================================================"
+            } >> "$REPORT"
+            head -n 250 "$LOG" >> "$REPORT" || true
+
+            {
+              echo
+              echo "============================================================"
+              echo "Final 250 lines of $LOG"
+              echo "============================================================"
+            } >> "$REPORT"
+            tail -n 250 "$LOG" >> "$REPORT" || true
             echo >> "$REPORT"
           done
 
-          echo "Actual Gradle failure details"
+          echo "========== Actual Gradle failure details =========="
           cat "$REPORT"
 
       - name: Upload debug APK
@@ -152,7 +211,9 @@ jobs:
           name: gradle-diagnostics
           path: |
             gradle-build.log
+            gradle-build-clean.log
             gradle-tests.log
+            gradle-tests-clean.log
             gradle-failure-report.txt
           if-no-files-found: ignore
           retention-days: 14
