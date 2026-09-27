@@ -87,32 +87,35 @@ jobs:
             --warning-mode all \
             2>&1 | tee gradle-tests.log
 
-      - name: Print Gradle failure details
+      - name: Prepare Gradle failure report
         if: always() && (steps.apk_build.outcome == 'failure' || steps.unit_tests.outcome == 'failure')
         run: |
-          echo "::group::Gradle failure highlights"
+          {
+            echo "Gradle failure report"
+            echo "====================="
+            echo
 
-          found_log=false
-          for log_file in gradle-build.log gradle-tests.log; do
-            if [ -f "$log_file" ]; then
-              found_log=true
-              echo
-              echo "===== ${log_file}: likely error lines ====="
-              grep -nEi \
-                'FAILURE:|What went wrong:|Execution failed for task|Caused by:|^[[:space:]]*e: |^[[:space:]]*error:|Could not resolve|Could not find|Compilation error|A failure occurred|BUILD FAILED' \
-                "$log_file" | tail -n 200 || true
+            found_log=false
+            for log_file in gradle-build.log gradle-tests.log; do
+              if [ -f "$log_file" ]; then
+                found_log=true
+                echo "===== ${log_file}: likely error lines ====="
+                grep -nEi \
+                  'FAILURE:|What went wrong:|Execution failed for task|Caused by:|Exception|^[[:space:]]*e: |^[[:space:]]*error:|Could not resolve|Could not find|Compilation error|A failure occurred|Manifest merger failed|Android resource linking failed|BUILD FAILED' \
+                  "$log_file" | tail -n 250 || true
+                echo
+                echo "===== ${log_file}: final 300 lines ====="
+                tail -n 300 "$log_file"
+                echo
+              fi
+            done
 
-              echo
-              echo "===== ${log_file}: final 250 lines ====="
-              tail -n 250 "$log_file"
+            if [ "$found_log" = false ]; then
+              echo "No Gradle log file was generated."
             fi
-          done
+          } > gradle-failure-report.txt
 
-          if [ "$found_log" = false ]; then
-            echo "::warning::No Gradle log file was generated."
-          fi
-
-          echo "::endgroup::"
+          cat gradle-failure-report.txt
 
       - name: Upload Gradle diagnostics
         if: always()
@@ -122,6 +125,7 @@ jobs:
           path: |
             gradle-build.log
             gradle-tests.log
+            gradle-failure-report.txt
             **/build/reports/**
             **/build/test-results/**
             **/build/outputs/logs/**
@@ -168,14 +172,32 @@ jobs:
             echo "Full logs and reports are available in the **gradle-diagnostics** artifact."
           } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Fail if APK build failed
-        if: always() && steps.apk_build.outcome == 'failure'
+      - name: Report failure and fail job
+        if: >-
+          always() &&
+          (
+            steps.apk_build.outcome == 'failure' ||
+            (env.FAIL_ON_TEST_FAILURE == 'true' && steps.unit_tests.outcome == 'failure')
+          )
         run: |
-          echo "::error::The Android debug APK build failed. See the 'Print Gradle failure details' step above."
-          exit 1
+          echo "::group::Actual Gradle failure details"
 
-      - name: Fail if unit tests failed
-        if: always() && env.FAIL_ON_TEST_FAILURE == 'true' && steps.unit_tests.outcome == 'failure'
-        run: |
-          echo "::error::Android unit tests failed. See the 'Print Gradle failure details' step above."
+          if [ -f gradle-failure-report.txt ]; then
+            cat gradle-failure-report.txt
+          elif [ -f gradle-build.log ]; then
+            tail -n 300 gradle-build.log
+          elif [ -f gradle-tests.log ]; then
+            tail -n 300 gradle-tests.log
+          else
+            echo "No Gradle diagnostic log was generated."
+          fi
+
+          echo "::endgroup::"
+
+          if [ "${{ steps.apk_build.outcome }}" = "failure" ]; then
+            echo "::error title=Android APK build failed::Review the Gradle error printed immediately above or download the gradle-diagnostics artifact."
+          else
+            echo "::error title=Android unit tests failed::Review the test error printed immediately above or download the gradle-diagnostics artifact."
+          fi
+
           exit 1
