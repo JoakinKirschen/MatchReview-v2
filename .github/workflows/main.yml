@@ -43,7 +43,6 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
 
-      # Explicitly omit the obsolete Android SDK "tools" package.
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
         with:
@@ -63,47 +62,127 @@ jobs:
           ./gradlew --version
           sdkmanager --list_installed
 
+      # Capture Gradle output instead of streaming a long stack trace. If the
+      # build fails, the next step prints compiler messages as the final output.
       - name: Build debug APK
         id: build
         continue-on-error: true
         shell: bash
         run: |
           set +e
-          set -o pipefail
 
           ./gradlew clean assembleDebug \
             --console=plain \
-            --stacktrace \
             --warning-mode all \
             --no-daemon \
-            2>&1 | tee gradle-build.log
+            > gradle-build.log 2>&1
 
-          BUILD_EXIT=${PIPESTATUS[0]}
+          BUILD_EXIT=$?
           echo "exit_code=$BUILD_EXIT" >> "$GITHUB_OUTPUT"
 
-          # Remove ANSI control sequences so compiler diagnostics are searchable.
-          sed -E \
-            's/\x1B(\[[0-9;?]*[ -\/]*[@-~]|\][^\a]*(\a|\x1B\\))//g' \
-            gradle-build.log > gradle-build-clean.log || \
-            cp gradle-build.log gradle-build-clean.log
+          # Strip ANSI escape sequences.
+          python3 - <<'PY'
+          import re
+          from pathlib import Path
 
-          if [[ "$BUILD_EXIT" -ne 0 ]]; then
-            echo
-            echo "========== Kotlin/compiler diagnostics =========="
+          source = Path("gradle-build.log")
+          text = source.read_text(encoding="utf-8", errors="replace")
+          ansi = re.compile(r"\x1B(?:[@-_][0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1B\\))")
+          Path("gradle-build-clean.log").write_text(
+              ansi.sub("", text),
+              encoding="utf-8",
+          )
+          PY
 
-            grep -nEi \
-              '(^|[[:space:]])(e:|error:)[[:space:]]|file:/{2,3}.*\.kt(:|\()|\.kt:[0-9]+|\.kt \([0-9]+|unresolved reference|type mismatch|cannot infer|no value passed|too many arguments|conflicting overloads|overload resolution ambiguity|expecting (an element|expression|member declaration)|redeclaration|unresolved supertypes|cannot access|is not abstract and does not implement|none of the following candidates' \
-              gradle-build-clean.log | head -n 300 || true
-
-            echo
-            echo "========== Failed task and surrounding context =========="
-
-            grep -nEi -B 20 -A 80 \
-              'execution failed for task|compilation error|what went wrong|failure: build failed with an exception' \
-              gradle-build-clean.log | head -n 500 || true
+          if [[ "$BUILD_EXIT" -eq 0 ]]; then
+            cat gradle-build-clean.log
           fi
 
           exit "$BUILD_EXIT"
+
+      - name: Extract Kotlin and Gradle errors
+        if: always() && steps.build.outcome == 'failure'
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import re
+          from pathlib import Path
+
+          log_path = Path("gradle-build-clean.log")
+          report_path = Path("compiler-errors.txt")
+
+          if not log_path.exists():
+              report_path.write_text(
+                  "gradle-build-clean.log was not created.\n",
+                  encoding="utf-8",
+              )
+              raise SystemExit(0)
+
+          lines = log_path.read_text(
+              encoding="utf-8",
+              errors="replace",
+          ).splitlines()
+
+          patterns = [
+              re.compile(r"^\s*e:\s+", re.I),
+              re.compile(r"^\s*error:\s+", re.I),
+              re.compile(r"\.kts?(?::|\()[0-9]+", re.I),
+              re.compile(r"\b(unresolved reference|type mismatch|cannot infer)\b", re.I),
+              re.compile(r"\b(no value passed|too many arguments)\b", re.I),
+              re.compile(r"\b(conflicting overloads|overload resolution ambiguity)\b", re.I),
+              re.compile(r"\b(expecting .+|redeclaration|unresolved supertypes)\b", re.I),
+              re.compile(r"\b(cannot access|does not implement|none of the following candidates)\b", re.I),
+              re.compile(r"Android resource linking failed", re.I),
+              re.compile(r"Manifest merger failed", re.I),
+              re.compile(r"Execution failed for task", re.I),
+              re.compile(r"Could not resolve (all files|all dependencies)", re.I),
+              re.compile(r"Could not find .+:", re.I),
+              re.compile(r"FAILURE: Build failed with an exception", re.I),
+              re.compile(r"^\s*\* What went wrong:", re.I),
+          ]
+
+          selected = set()
+          for index, line in enumerate(lines):
+              if any(pattern.search(line) for pattern in patterns):
+                  # Include nearby lines because Kotlin sometimes wraps messages.
+                  for nearby in range(max(0, index - 2), min(len(lines), index + 5)):
+                      selected.add(nearby)
+
+          output = [
+              "============================================================",
+              "ACTIONABLE KOTLIN / GRADLE ERRORS",
+              "============================================================",
+          ]
+
+          if selected:
+              previous = None
+              for index in sorted(selected):
+                  if previous is not None and index > previous + 1:
+                      output.append("--")
+                  output.append(f"{index + 1}: {lines[index]}")
+                  previous = index
+          else:
+              output.extend([
+                  "No source-level compiler line was detected automatically.",
+                  "The final 200 lines of the Gradle log follow:",
+                  "------------------------------------------------------------",
+                  *lines[-200:],
+              ])
+
+          report_path.write_text("\n".join(output) + "\n", encoding="utf-8")
+          PY
+
+          cat compiler-errors.txt
+
+          {
+            echo "## Android build failed"
+            echo
+            echo '```text'
+            head -n 300 compiler-errors.txt
+            echo '```'
+            echo
+            echo "Download the **gradle-diagnostics** artifact for the full log."
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Run unit tests
         id: tests
@@ -112,84 +191,55 @@ jobs:
         shell: bash
         run: |
           set +e
-          set -o pipefail
 
           ./gradlew testDebugUnitTest \
             --console=plain \
-            --stacktrace \
             --warning-mode all \
             --no-daemon \
-            2>&1 | tee gradle-tests.log
+            > gradle-tests.log 2>&1
 
-          TEST_EXIT=${PIPESTATUS[0]}
+          TEST_EXIT=$?
           echo "exit_code=$TEST_EXIT" >> "$GITHUB_OUTPUT"
 
-          sed -E \
-            's/\x1B(\[[0-9;?]*[ -\/]*[@-~]|\][^\a]*(\a|\x1B\\))//g' \
-            gradle-tests.log > gradle-tests-clean.log || \
-            cp gradle-tests.log gradle-tests-clean.log
+          python3 - <<'PY'
+          import re
+          from pathlib import Path
+
+          source = Path("gradle-tests.log")
+          text = source.read_text(encoding="utf-8", errors="replace")
+          ansi = re.compile(r"\x1B(?:[@-_][0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1B\\))")
+          Path("gradle-tests-clean.log").write_text(
+              ansi.sub("", text),
+              encoding="utf-8",
+          )
+          PY
+
+          if [[ "$TEST_EXIT" -eq 0 ]]; then
+            cat gradle-tests-clean.log
+          fi
 
           exit "$TEST_EXIT"
 
-      - name: Create Gradle failure report
-        if: always() && (steps.build.outcome == 'failure' || steps.tests.outcome == 'failure')
+      - name: Print unit-test failure
+        if: always() && steps.tests.outcome == 'failure'
         shell: bash
         run: |
-          REPORT="gradle-failure-report.txt"
-          : > "$REPORT"
-
-          for LOG in gradle-build-clean.log gradle-tests-clean.log; do
-            [[ -f "$LOG" ]] || continue
-
-            {
-              echo "============================================================"
-              echo "Actionable compiler/build diagnostics from $LOG"
-              echo "============================================================"
-            } >> "$REPORT"
-
-            grep -nEi \
-              '(^|[[:space:]])(e:|error:)[[:space:]]|file:/{2,3}.*\.kt(:|\()|\.kt:[0-9]+|\.kt \([0-9]+|unresolved reference|type mismatch|cannot infer|no value passed|too many arguments|conflicting overloads|overload resolution ambiguity|expecting (an element|expression|member declaration)|redeclaration|unresolved supertypes|cannot access|is not abstract and does not implement|none of the following candidates|execution failed for task|what went wrong' \
-              "$LOG" | head -n 500 >> "$REPORT" || true
-
-            {
-              echo
-              echo "============================================================"
-              echo "Context around the failed task in $LOG"
-              echo "============================================================"
-            } >> "$REPORT"
-
-            grep -nEi -B 30 -A 120 \
-              'execution failed for task|compilation error|what went wrong|failure: build failed with an exception' \
-              "$LOG" | head -n 800 >> "$REPORT" || true
-
-            {
-              echo
-              echo "============================================================"
-              echo "First 250 lines of $LOG"
-              echo "============================================================"
-            } >> "$REPORT"
-            head -n 250 "$LOG" >> "$REPORT" || true
-
-            {
-              echo
-              echo "============================================================"
-              echo "Final 250 lines of $LOG"
-              echo "============================================================"
-            } >> "$REPORT"
-            tail -n 250 "$LOG" >> "$REPORT" || true
-            echo >> "$REPORT"
-          done
-
-          echo "========== Actual Gradle failure details =========="
-          cat "$REPORT"
+          echo "========== UNIT-TEST FAILURE =========="
+          if [[ -f gradle-tests-clean.log ]]; then
+            grep -nEi -B 10 -A 40 \
+              'failed|failure|assertion|expected|exception|execution failed for task' \
+              gradle-tests-clean.log | head -n 400 || true
+            echo
+            echo "========== FINAL 150 TEST LOG LINES =========="
+            tail -n 150 gradle-tests-clean.log
+          fi
 
       - name: Upload debug APK
         if: always() && steps.build.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
           name: android-debug-apk
-          path: |
-            **/build/outputs/apk/debug/*.apk
+          path: "**/build/outputs/apk/debug/*.apk"
           if-no-files-found: error
           retention-days: 14
 
@@ -212,26 +262,25 @@ jobs:
           path: |
             gradle-build.log
             gradle-build-clean.log
+            compiler-errors.txt
             gradle-tests.log
             gradle-tests-clean.log
-            gradle-failure-report.txt
           if-no-files-found: ignore
           retention-days: 14
 
+      # Keep the concise compiler report at the very end of the failed job.
       - name: Fail when APK build failed
         if: always() && steps.build.outcome == 'failure'
         shell: bash
         run: |
           echo "::error::The Android debug APK build failed."
-
-          if [[ -f gradle-failure-report.txt ]]; then
-            echo
-            echo "========== Actual Gradle failure details =========="
-            cat gradle-failure-report.txt
-          elif [[ -f gradle-build.log ]]; then
-            tail -n 300 gradle-build.log
+          echo
+          if [[ -f compiler-errors.txt ]]; then
+            cat compiler-errors.txt
+          else
+            echo "Compiler report is unavailable."
+            [[ -f gradle-build-clean.log ]] && tail -n 200 gradle-build-clean.log
           fi
-
           exit 1
 
       - name: Fail when unit tests failed
@@ -243,11 +292,5 @@ jobs:
         shell: bash
         run: |
           echo "::error::Android unit tests failed."
-
-          if [[ -f gradle-failure-report.txt ]]; then
-            cat gradle-failure-report.txt
-          elif [[ -f gradle-tests.log ]]; then
-            tail -n 300 gradle-tests.log
-          fi
-
+          [[ -f gradle-tests-clean.log ]] && tail -n 200 gradle-tests-clean.log
           exit 1
