@@ -43,13 +43,14 @@ jobs:
         with:
           gradle-version: wrapper
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
-
-      - name: Install Android SDK packages
-        run: |
-          yes | sdkmanager --licenses >/dev/null
-          sdkmanager             "platforms;android-${ANDROID_API_LEVEL}"             "build-tools;${ANDROID_BUILD_TOOLS}"             "platform-tools"
+      - name: Set up Android SDK and required packages
+        uses: android-actions/setup-android@v4
+        with:
+          packages: >-
+            platform-tools
+            platforms;android-${{ env.ANDROID_API_LEVEL }}
+            build-tools;${{ env.ANDROID_BUILD_TOOLS }}
+          log-accepted-android-sdk-licenses: false
 
       - name: Print build environment
         run: |
@@ -62,7 +63,15 @@ jobs:
         continue-on-error: true
         run: |
           chmod +x ./gradlew
-          ./gradlew             clean             assembleDebug             testDebugUnitTest             --stacktrace             --info             --warning-mode all             2>&1 | tee gradle-build.log
+          set -o pipefail
+          ./gradlew \
+            clean \
+            assembleDebug \
+            testDebugUnitTest \
+            --stacktrace \
+            --info \
+            --warning-mode all \
+            2>&1 | tee gradle-build.log
 
       - name: Upload Gradle diagnostics
         if: always()
@@ -82,8 +91,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: matchreview-debug-apk
-          path: |
-            **/build/outputs/apk/debug/*.apk
+          path: "**/build/outputs/apk/debug/*.apk"
           if-no-files-found: error
           retention-days: 14
 
