@@ -43,6 +43,9 @@ jobs:
         with:
           gradle-version: wrapper
 
+      - name: Make Gradle wrapper executable
+        run: chmod +x ./gradlew
+
       - name: Set up Android SDK and required packages
         uses: android-actions/setup-android@v4
         with:
