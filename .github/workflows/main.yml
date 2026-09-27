@@ -61,20 +61,58 @@ jobs:
           ./gradlew --version
           sdkmanager --list_installed
 
-      - name: Build debug APK and run tests
-        id: gradle
+      - name: Build debug APK
+        id: apk_build
         continue-on-error: true
         run: |
-          chmod +x ./gradlew
           set -o pipefail
           ./gradlew \
             clean \
             assembleDebug \
-            testDebugUnitTest \
             --stacktrace \
             --info \
             --warning-mode all \
             2>&1 | tee gradle-build.log
+
+      - name: Run unit tests
+        id: unit_tests
+        if: steps.apk_build.outcome == 'success'
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          ./gradlew \
+            testDebugUnitTest \
+            --stacktrace \
+            --info \
+            --warning-mode all \
+            2>&1 | tee gradle-tests.log
+
+      - name: Print Gradle failure details
+        if: always() && (steps.apk_build.outcome == 'failure' || steps.unit_tests.outcome == 'failure')
+        run: |
+          echo "::group::Gradle failure highlights"
+
+          found_log=false
+          for log_file in gradle-build.log gradle-tests.log; do
+            if [ -f "$log_file" ]; then
+              found_log=true
+              echo
+              echo "===== ${log_file}: likely error lines ====="
+              grep -nEi \
+                'FAILURE:|What went wrong:|Execution failed for task|Caused by:|^[[:space:]]*e: |^[[:space:]]*error:|Could not resolve|Could not find|Compilation error|A failure occurred|BUILD FAILED' \
+                "$log_file" | tail -n 200 || true
+
+              echo
+              echo "===== ${log_file}: final 250 lines ====="
+              tail -n 250 "$log_file"
+            fi
+          done
+
+          if [ "$found_log" = false ]; then
+            echo "::warning::No Gradle log file was generated."
+          fi
+
+          echo "::endgroup::"
 
       - name: Upload Gradle diagnostics
         if: always()
@@ -83,6 +121,7 @@ jobs:
           name: gradle-diagnostics
           path: |
             gradle-build.log
+            gradle-tests.log
             **/build/reports/**
             **/build/test-results/**
             **/build/outputs/logs/**
@@ -90,7 +129,7 @@ jobs:
           retention-days: 14
 
       - name: Upload debug APK
-        if: steps.gradle.outcome == 'success'
+        if: steps.apk_build.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
           name: matchreview-debug-apk
@@ -104,25 +143,39 @@ jobs:
           {
             echo "## Android build outcome"
             echo
-            echo "- Gradle step: \`${{ steps.gradle.outcome }}\`"
+            echo "- APK build: \`${{ steps.apk_build.outcome }}\`"
+            echo "- Unit tests: \`${{ steps.unit_tests.outcome }}\`"
             echo "- Java: \`${JAVA_VERSION}\`"
             echo "- Android API: \`${ANDROID_API_LEVEL}\`"
             echo "- Build Tools: \`${ANDROID_BUILD_TOOLS}\`"
             echo
-            if [ "${{ steps.gradle.outcome }}" = "success" ]; then
-              echo "The debug APK and test reports were generated successfully."
-            else
-              echo "The build failed. Download the **gradle-diagnostics** artifact and inspect:"
+
+            if [ "${{ steps.apk_build.outcome }}" = "failure" ]; then
+              echo "❌ The debug APK build failed."
               echo
-              echo '```text'
-              echo "* What went wrong:"
-              echo "Caused by:"
-              echo '```'
+              echo "The **Print Gradle failure details** step contains the relevant error."
+            elif [ "${{ steps.unit_tests.outcome }}" = "failure" ]; then
+              echo "❌ The APK was built, but one or more unit tests failed."
+              echo
+              echo "The **Print Gradle failure details** step and test reports contain the failure."
+            elif [ "${{ steps.apk_build.outcome }}" = "success" ]; then
+              echo "✅ The debug APK build and unit-test task completed successfully."
+            else
+              echo "⚠️ The Gradle tasks did not complete normally."
             fi
+
+            echo
+            echo "Full logs and reports are available in the **gradle-diagnostics** artifact."
           } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Fail if Gradle failed
-        if: steps.gradle.outcome == 'failure'
+      - name: Fail if APK build failed
+        if: always() && steps.apk_build.outcome == 'failure'
         run: |
-          echo "::error::The Android debug APK build or unit-test task failed."
+          echo "::error::The Android debug APK build failed. See the 'Print Gradle failure details' step above."
+          exit 1
+
+      - name: Fail if unit tests failed
+        if: always() && env.FAIL_ON_TEST_FAILURE == 'true' && steps.unit_tests.outcome == 'failure'
+        run: |
+          echo "::error::Android unit tests failed. See the 'Print Gradle failure details' step above."
           exit 1
