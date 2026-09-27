@@ -64,6 +64,23 @@ jobs:
 
       # Capture Gradle output instead of streaming a long stack trace. If the
       # build fails, the next step prints compiler messages as the final output.
+      - name: Enable required Kotlin Material API opt-ins
+        shell: bash
+        run: |
+          mkdir -p "$GRADLE_USER_HOME/init.d"
+          cat > "$GRADLE_USER_HOME/init.d/ci-kotlin-optins.gradle" <<'GRADLE'
+          allprojects {
+              tasks.configureEach { task ->
+                  if (task.hasProperty("kotlinOptions")) {
+                      task.kotlinOptions.freeCompilerArgs += [
+                          "-opt-in=androidx.compose.material.ExperimentalMaterialApi",
+                          "-opt-in=androidx.compose.material3.ExperimentalMaterial3Api"
+                      ]
+                  }
+              }
+          }
+          GRADLE
+
       - name: Build debug APK
         id: build
         continue-on-error: true
