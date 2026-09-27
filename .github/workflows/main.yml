@@ -62,24 +62,42 @@ jobs:
           ./gradlew --version
           sdkmanager --list_installed
 
-      # Capture Gradle output instead of streaming a long stack trace. If the
-      # build fails, the next step prints compiler messages as the final output.
-      - name: Enable required Kotlin Material API opt-ins
+      # LiveMatchScreen uses an experimental Compose Material API. Apply the
+      # source-level opt-in in the CI checkout before compiling. This is more
+      # reliable across Kotlin Gradle plugin versions than configuring
+      # kotlinOptions from an init script.
+      - name: Apply Compose Material API opt-in
         shell: bash
         run: |
-          mkdir -p "$GRADLE_USER_HOME/init.d"
-          cat > "$GRADLE_USER_HOME/init.d/ci-kotlin-optins.gradle" <<'GRADLE'
-          allprojects {
-              tasks.configureEach { task ->
-                  if (task.hasProperty("kotlinOptions")) {
-                      task.kotlinOptions.freeCompilerArgs += [
-                          "-opt-in=androidx.compose.material.ExperimentalMaterialApi",
-                          "-opt-in=androidx.compose.material3.ExperimentalMaterial3Api"
-                      ]
-                  }
-              }
-          }
-          GRADLE
+          python3 - <<'PY'
+          from pathlib import Path
+
+          source = Path(
+              "app/src/main/java/be/matchreview/app/LiveMatchScreen.kt"
+          )
+          annotation = (
+              "@file:OptIn("
+              "androidx.compose.material.ExperimentalMaterialApi::class"
+              ")"
+          )
+
+          if not source.exists():
+              raise SystemExit(f"Expected Kotlin source file not found: {source}")
+
+          text = source.read_text(encoding="utf-8-sig")
+
+          if annotation not in text:
+              source.write_text(
+                  f"{annotation}\n\n{text}",
+                  encoding="utf-8",
+              )
+              print(f"Added Material API opt-in to {source}")
+          else:
+              print(f"Material API opt-in already present in {source}")
+          PY
+
+      # Capture Gradle output instead of streaming a long stack trace. If the
+      # build fails, the next step prints compiler messages as the final output.
 
       - name: Build debug APK
         id: build
