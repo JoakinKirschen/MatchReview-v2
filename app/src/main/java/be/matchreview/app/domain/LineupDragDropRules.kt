@@ -1,5 +1,7 @@
 package be.matchreview.app.domain
 
+import be.matchreview.app.data.MatchLineupPlacement
+
 data class PitchDrop(
     val normalizedX: Float,
     val normalizedY: Float,
@@ -23,6 +25,29 @@ object LineupDragDropRules {
         if (pitchWidth <= 0f || pitchHeight <= 0f) return 0.5f to 0.5f
         return ((rootX - pitchLeft) / pitchWidth).coerceIn(EDGE_INSET, 1f - EDGE_INSET) to
             ((rootY - pitchTop) / pitchHeight).coerceIn(EDGE_INSET, 1f - EDGE_INSET)
+    }
+
+    /** How close a player must stand to a formation slot to count as filling it. */
+    const val SLOT_OCCUPIED_RADIUS = 0.07f
+
+    /**
+     * Slots that are taken, either because a player was saved in that slot or because a
+     * player stands on it. Players placed freely (or with slot ids from another layout,
+     * such as practice matches) would otherwise leave their slot looking free.
+     */
+    fun occupiedSlotIds(
+        slots: List<FormationSlot>,
+        others: List<MatchLineupPlacement>
+    ): Set<String> {
+        val byId = others.mapNotNullTo(mutableSetOf()) { it.formationSlot.takeIf(String::isNotBlank) }
+        val byPosition = slots.filter { slot ->
+            others.any { other ->
+                val dx = other.normalizedX - slot.normalizedX
+                val dy = other.normalizedY - slot.normalizedY
+                dx * dx + dy * dy <= SLOT_OCCUPIED_RADIUS * SLOT_OCCUPIED_RADIUS
+            }
+        }.map { it.id }
+        return byId + byPosition
     }
 
     fun resolvePitchDrop(

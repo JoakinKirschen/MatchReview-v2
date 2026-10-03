@@ -1,5 +1,6 @@
 package be.matchreview.app
 
+import android.os.SystemClock
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -22,18 +23,24 @@ import be.matchreview.app.data.MatchLineupPlacement
 import be.matchreview.app.data.Player
 import be.matchreview.app.domain.FormationLayout
 import be.matchreview.app.domain.LineupDragDropRules
+import be.matchreview.app.domain.SubstitutionDrop
 import be.matchreview.app.domain.SubstitutionPlanRules
 import kotlin.math.roundToInt
 
 private data class SubstitutionDrag(val playerId: Long, val pointerInRoot: Offset)
 
+/** Taps that arrive this soon after a drop belong to the drag gesture, not to a new tap. */
+private const val TAP_AFTER_DROP_GRACE_MS = 400L
+
 /**
- * Substitution mode: the live lineup is edited with the same long-press drag and drop as
- * the starting lineup. Changes stay local until the coach confirms, so the players on the
- * pitch keep collecting minutes until the whole round is applied at one match time.
+ * Full-screen substitution mode: the live lineup is edited with the same long-press drag
+ * and drop as the starting lineup. Changes stay local until the coach confirms, so the
+ * players on the pitch keep collecting minutes until the whole round is applied at one
+ * match time.
  *
- * Drop a substitute onto a pitch player to swap them, onto free grass when the pitch is
- * not full, or drag a pitch player to the bench. Tapping two players swaps them too.
+ * Release a substitute on a pitch player to swap them; while the pitch is full a
+ * substitute always replaces the nearest player. Drag a pitch player to the bench to take
+ * them off, or onto free grass to move them. Tapping two players swaps them too.
  */
 @Composable
 internal fun SubstitutionModePanel(
@@ -43,8 +50,9 @@ internal fun SubstitutionModePanel(
     restoredPlan: List<MatchLineupPlacement>?,
     playersById: Map<Long, Player>,
     eligibleBenchIds: Set<Long>,
+    clockLabel: String,
+    scoreLabel: String,
     minutesLabel: (Long) -> String,
-    onMessage: (String) -> Unit,
     /** Called with the current plan, or null when it no longer differs from the live lineup. */
     onDraftChanged: (List<MatchLineupPlacement>?) -> Unit,
     onCancel: () -> Unit,
@@ -58,12 +66,13 @@ internal fun SubstitutionModePanel(
     }
     var drag by remember { mutableStateOf<SubstitutionDrag?>(null) }
     var selectedId by remember { mutableStateOf<Long?>(null) }
+    var lastDropAt by remember { mutableLongStateOf(0L) }
     var pitchBounds by remember { mutableStateOf<Rect?>(null) }
     var benchBounds by remember { mutableStateOf<Rect?>(null) }
     var panelOrigin by remember { mutableStateOf(Offset.Zero) }
     val haptics = LocalHapticFeedback.current
     val density = LocalDensity.current
-    val markerHitRadiusPx = with(density) { 30.dp.toPx() }
+    val playerHitRadiusPx = with(density) { 40.dp.toPx() }
 
     val slots = remember(match.formation, match.playersOnPitch) {
         FormationLayout.slots(match.formation, match.playersOnPitch)
@@ -81,25 +90,22 @@ internal fun SubstitutionModePanel(
     fun canMove(playerId: Long): Boolean =
         playerId in eligibleBenchIds || originalById[playerId]?.onPitch == true
 
-    fun playerUnder(pointer: Offset, excluding: Long): Long? {
+    /** Where [playerId] would go if released at [pointer]; null when not over the pitch. */
+    fun dropAt(playerId: Long, pointer: Offset): SubstitutionDrop? {
         val pitch = pitchBounds ?: return null
-        return onPitch
-            .filterNot { it.playerId == excluding }
-            .map { placement ->
-                val center = Offset(
-                    pitch.left + pitch.width * placement.normalizedX,
-                    pitch.top + pitch.height * placement.normalizedY
-                )
-                placement.playerId to (center - pointer).getDistance()
-            }
-            .filter { it.second <= markerHitRadiusPx }
-            .minByOrNull { it.second }
-            ?.first
+        if (!pitch.contains(pointer)) return null
+        val (x, y) = LineupDragDropRules.normalize(
+            pointer.x, pointer.y, pitch.left, pitch.top, pitch.width, pitch.height
+        )
+        return SubstitutionPlanRules.resolveDrop(
+            plan, playerId, x, y, slots, match.playersOnPitch,
+            pitch.width, pitch.height, playerHitRadiusPx
+        )
     }
 
     fun swap(first: Long, second: Long) {
         if (!canMove(first) || !canMove(second)) {
-            onMessage("That player cannot return to the pitch")
+            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
             return
         }
         plan = SubstitutionPlanRules.swap(plan, first, second)
@@ -109,49 +115,27 @@ internal fun SubstitutionModePanel(
     fun finishDrag(playerId: Long, pointer: Offset) {
         drag = null
         selectedId = null
-        val pitch = pitchBounds
+        lastDropAt = SystemClock.uptimeMillis()
         val benchArea = benchBounds
-        when {
-            pitch != null && pitch.contains(pointer) -> {
-                val target = playerUnder(pointer, playerId)
-                if (target != null) {
-                    swap(playerId, target)
-                    return
-                }
-                val (x, y) = LineupDragDropRules.normalize(
-                    pointer.x, pointer.y, pitch.left, pitch.top, pitch.width, pitch.height
-                )
-                val occupied = onPitch
-                    .filterNot { it.playerId == playerId }
-                    .mapNotNullTo(mutableSetOf()) { it.formationSlot.takeIf(String::isNotBlank) }
-                val drop = LineupDragDropRules.resolvePitchDrop(x, y, slots, occupied)
-                val updated = SubstitutionPlanRules.moveToPitch(plan, playerId, drop, match.playersOnPitch)
-                if (updated == null) {
-                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                    onMessage("The pitch is full. Drop the substitute onto the player who comes off.")
-                } else {
-                    plan = updated
-                    haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                }
+        when (val drop = dropAt(playerId, pointer)) {
+            is SubstitutionDrop.Swap -> swap(playerId, drop.targetPlayerId)
+            is SubstitutionDrop.Place -> {
+                SubstitutionPlanRules.moveToPitch(plan, playerId, drop.drop, match.playersOnPitch)
+                    ?.let { plan = it }
+                haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
             }
-            benchArea != null && benchArea.contains(pointer) -> {
+            null -> if (benchArea != null && benchArea.contains(pointer)) {
                 plan = SubstitutionPlanRules.moveToBench(plan, playerId)
                 haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
             }
-            else -> haptics.performHapticFeedback(HapticFeedbackType.LongPress)
         }
     }
 
     fun tapPlayer(playerId: Long) {
+        if (SystemClock.uptimeMillis() - lastDropAt < TAP_AFTER_DROP_GRACE_MS) return
         val selected = selectedId
         when {
-            selected == null -> {
-                if (!canMove(playerId)) {
-                    onMessage("${playersById[playerId]?.name ?: "This player"} cannot return to the pitch")
-                } else {
-                    selectedId = playerId
-                }
-            }
+            selected == null -> if (canMove(playerId)) selectedId = playerId
             selected == playerId -> selectedId = null
             else -> {
                 swap(selected, playerId)
@@ -160,31 +144,38 @@ internal fun SubstitutionModePanel(
         }
     }
 
-    val hoveredPlayerId = drag?.let { playerUnder(it.pointerInRoot, it.playerId) }
+    val preview = drag?.let { dropAt(it.playerId, it.pointerInRoot) }
     val dragPointer = drag?.pointerInRoot
     val pitchIsTarget = dragPointer?.let { pitchBounds?.contains(it) } == true
     val benchIsTarget = dragPointer?.let { benchBounds?.contains(it) } == true
+    val swapTarget = (preview as? SubstitutionDrop.Swap)?.targetPlayerId
+    val snapSlot = (preview as? SubstitutionDrop.Place)?.drop?.takeIf { it.snapped }?.formationSlot
 
-    Column(modifier, verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Surface(
-            color = MaterialTheme.colorScheme.tertiaryContainer,
-            shape = MaterialTheme.shapes.small,
-            modifier = Modifier.fillMaxWidth()
+    Column(modifier) {
+        Row(
+            Modifier.fillMaxWidth().heightIn(min = 36.dp).padding(horizontal = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            Column(Modifier.padding(horizontal = 10.dp, vertical = 6.dp)) {
-                Text(
-                    "Substitution mode • clock and minutes keep running",
-                    style = MaterialTheme.typography.labelLarge,
-                    fontWeight = FontWeight.Bold
-                )
-                Text(
-                    selectedId?.let { "Selected ${playersById[it]?.name ?: "player"} • tap another player to swap" }
-                        ?: "Long-press and drag a substitute onto the player who comes off, or tap two players.",
-                    style = MaterialTheme.typography.bodySmall,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
+            Text("Substitutions", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+            Text(
+                when {
+                    selectedId != null -> "Tap a player to swap with ${playersById[selectedId]?.name ?: "player"}"
+                    changes.isEmpty -> "Drag a substitute onto a player"
+                    else -> listOfNotNull(
+                        changes.incoming.takeIf { it.isNotEmpty() }
+                            ?.joinToString(prefix = "▲ ") { playersById[it]?.name?.substringBefore(" ") ?: "Player" },
+                        changes.outgoing.takeIf { it.isNotEmpty() }
+                            ?.joinToString(prefix = "▼ ") { playersById[it]?.name?.substringBefore(" ") ?: "Player" },
+                        changes.moved.takeIf { it.isNotEmpty() }?.let { "${it.size} moved" }
+                    ).joinToString("  ")
+                },
+                style = MaterialTheme.typography.labelMedium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f)
+            )
+            Text("$clockLabel • $scoreLabel", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
         }
 
         Box(
@@ -199,7 +190,7 @@ internal fun SubstitutionModePanel(
                     placements = onPitch,
                     playersById = playersById,
                     draggingPlayerId = drag?.playerId,
-                    highlightedSlotId = null,
+                    highlightedSlotId = snapSlot,
                     isDropTarget = pitchIsTarget,
                     onBoundsChanged = { pitchBounds = it },
                     onPlayerClick = ::tapPlayer,
@@ -221,8 +212,8 @@ internal fun SubstitutionModePanel(
                     onDragEnd = ::finishDrag,
                     onDragCancel = { drag = null },
                     subtitleFor = minutesLabel,
-                    highlightedPlayerId = hoveredPlayerId ?: selectedId,
-                    dropHint = hoveredPlayerId?.let { "Release to swap with ${playersById[it]?.name ?: "player"}" },
+                    highlightedPlayerId = swapTarget ?: selectedId,
+                    dropHint = swapTarget?.let { "Swap with ${playersById[it]?.name ?: "player"}" },
                     modifier = Modifier.weight(1f).fillMaxWidth().padding(horizontal = 2.dp, vertical = 2.dp)
                 )
                 BenchPanel(
@@ -239,9 +230,7 @@ internal fun SubstitutionModePanel(
                     onDragMove = { pointer -> drag = drag?.copy(pointerInRoot = pointer) },
                     onDragEnd = ::finishDrag,
                     onDragCancel = { drag = null },
-                    subtitleFor = { id ->
-                        if (canMove(id)) minutesLabel(id) else "Out"
-                    },
+                    subtitleFor = { id -> if (canMove(id)) minutesLabel(id) else "Out" },
                     canDrag = ::canMove
                 )
             }
@@ -263,22 +252,8 @@ internal fun SubstitutionModePanel(
             }
         }
 
-        if (!changes.isEmpty) {
-            Text(
-                listOfNotNull(
-                    changes.incoming.takeIf { it.isNotEmpty() }
-                        ?.joinToString(prefix = "▲ ") { playersById[it]?.name ?: "Player" },
-                    changes.outgoing.takeIf { it.isNotEmpty() }
-                        ?.joinToString(prefix = "▼ ") { playersById[it]?.name ?: "Player" },
-                    changes.moved.takeIf { it.isNotEmpty() }?.let { "${it.size} moved" }
-                ).joinToString("   "),
-                style = MaterialTheme.typography.labelMedium,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis
-            )
-        }
         Row(
-            Modifier.fillMaxWidth(),
+            Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 4.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {

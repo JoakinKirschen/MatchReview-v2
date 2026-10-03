@@ -254,16 +254,6 @@ class MatchRepository(private val dao: MatchDao) {
         dao.finishLiveMatch(matchId, monotonicNowMs, wallClockNowMs)
 
 
-    suspend fun substitutePlayer(
-        matchId: Long,
-        outgoingPlayerId: Long,
-        incomingPlayerId: Long,
-        monotonicNowMs: Long,
-        wallClockNowMs: Long
-    ) = dao.substitutePlayer(
-        matchId, outgoingPlayerId, incomingPlayerId, monotonicNowMs, wallClockNowMs
-    )
-
     suspend fun applySubstitutionRound(
         matchId: Long,
         planned: List<MatchLineupPlacement>,
@@ -280,13 +270,6 @@ class MatchRepository(private val dao: MatchDao) {
     ) = dao.removePlayerFromPitch(
         matchId, playerId, reason, monotonicNowMs, wallClockNowMs
     )
-
-    suspend fun putPlayerOnPitch(
-        matchId: Long,
-        playerId: Long,
-        monotonicNowMs: Long,
-        wallClockNowMs: Long
-    ) = dao.putPlayerOnPitch(matchId, playerId, monotonicNowMs, wallClockNowMs)
 
 
     suspend fun recordOurGoal(

@@ -163,9 +163,6 @@ fun LiveMatchScreen(
 
     var tab by remember { mutableStateOf(LiveTab.MATCH) }
     var selectedPlayerId by remember { mutableStateOf<Long?>(null) }
-    var substitutionOutgoingId by remember { mutableStateOf<Long?>(null) }
-    var substitutionIncomingId by remember { mutableStateOf<Long?>(null) }
-    var substitutionSheetOpen by remember { mutableStateOf(false) }
     var removalPlayerId by remember { mutableStateOf<Long?>(null) }
     var scorerSelectionOpen by remember { mutableStateOf(false) }
     var pendingGoalScorerId by remember { mutableStateOf<Long?>(null) }
@@ -291,7 +288,8 @@ fun LiveMatchScreen(
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
-            Surface(shadowElevation = 3.dp, color = MaterialTheme.colorScheme.surface) {
+            // Substitution mode gives the whole screen to the pitch and bench.
+            if (!substitutionMode) Surface(shadowElevation = 3.dp, color = MaterialTheme.colorScheme.surface) {
                 Row(
                     Modifier.fillMaxWidth().height(50.dp).padding(horizontal = 4.dp),
                     verticalAlignment = Alignment.CenterVertically
@@ -315,7 +313,7 @@ fun LiveMatchScreen(
             }
         },
         bottomBar = {
-            Surface(shadowElevation = 10.dp, color = MaterialTheme.colorScheme.surface) {
+            if (!substitutionMode) Surface(shadowElevation = 10.dp, color = MaterialTheme.colorScheme.surface) {
                 Column(Modifier.navigationBarsPadding()) {
                     CompactLiveTabs(
                         selected = tab,
@@ -335,7 +333,37 @@ fun LiveMatchScreen(
             }
         }
     ) { padding ->
-        Column(
+        if (substitutionMode) {
+            SubstitutionModePanel(
+                match = current,
+                livePlacements = placements,
+                restoredPlan = restoredSubstitutionPlan,
+                playersById = playersById,
+                eligibleBenchIds = eligibleBenchIds,
+                clockLabel = MatchClockCalculator.formatClock(matchTimeMs),
+                scoreLabel = "${current.ourScore}–${current.opponentScore}",
+                minutesLabel = { "${MatchClockCalculator.displayedWholeMinutes(playedMs(it))}'" },
+                onDraftChanged = { draft ->
+                    if (draft == null) vm.clearSubstitutionDraft(matchId)
+                    else vm.saveSubstitutionDraft(matchId, draft)
+                },
+                onCancel = ::leaveSubstitutionMode,
+                onConfirm = { plan ->
+                    vm.applySubstitutionRound(matchId, plan) { applied ->
+                        if (applied) {
+                            leaveSubstitutionMode()
+                        } else {
+                            scope.launch {
+                                snackbarHostState.showSnackbar(
+                                    "Those changes are not allowed any more. Check the lineup and try again."
+                                )
+                            }
+                        }
+                    }
+                },
+                modifier = Modifier.fillMaxSize().padding(padding)
+            )
+        } else Column(
             Modifier
                 .fillMaxSize()
                 .padding(padding)
@@ -412,34 +440,7 @@ fun LiveMatchScreen(
                 }
             }
 
-            if (tab == LiveTab.MATCH && substitutionMode) {
-                SubstitutionModePanel(
-                    match = current,
-                    livePlacements = placements,
-                    restoredPlan = restoredSubstitutionPlan,
-                    playersById = playersById,
-                    eligibleBenchIds = eligibleBenchIds,
-                    minutesLabel = { "${MatchClockCalculator.displayedWholeMinutes(playedMs(it))}'" },
-                    onMessage = { message -> scope.launch { snackbarHostState.showSnackbar(message) } },
-                    onDraftChanged = { draft ->
-                        if (draft == null) vm.clearSubstitutionDraft(matchId)
-                        else vm.saveSubstitutionDraft(matchId, draft)
-                    },
-                    onCancel = ::leaveSubstitutionMode,
-                    onConfirm = { plan ->
-                        vm.applySubstitutionRound(matchId, plan) { applied ->
-                            if (applied) leaveSubstitutionMode()
-                            scope.launch {
-                                snackbarHostState.showSnackbar(
-                                    if (applied) "Lineup changes saved at ${MatchClockCalculator.formatClock(matchTimeMs)}"
-                                    else "Those changes are not allowed any more. Check the lineup and try again."
-                                )
-                            }
-                        }
-                    },
-                    modifier = Modifier.weight(1f).fillMaxWidth()
-                )
-            } else if (tab == LiveTab.MATCH) {
+            if (tab == LiveTab.MATCH) {
                 LivePitch(
                     placements = onPitch,
                     playersById = playersById,
@@ -563,40 +564,17 @@ fun LiveMatchScreen(
                     OutlinedButton(
                         onClick = {
                             selectedPlayerId = null
-                            substitutionOutgoingId = player.id
-                            substitutionIncomingId = null
-                            substitutionSheetOpen = true
-                        },
-                        enabled = eligibleBenchIds.isNotEmpty(),
-                        modifier = Modifier.fillMaxWidth()
-                    ) { Text("Substitute player") }
-                    OutlinedButton(
-                        onClick = {
-                            selectedPlayerId = null
                             removalPlayerId = player.id
                         },
                         modifier = Modifier.fillMaxWidth()
-                    ) { Text("Remove from pitch") }
-                } else if (liveActionsEnabled && !isOnPitch && player.id in eligibleBenchIds) {
-                    if (onPitch.size < current.playersOnPitch) {
-                        Button(
-                            onClick = {
-                                selectedPlayerId = null
-                                vm.putPlayerOnPitch(matchId, player.id)
-                            },
-                            modifier = Modifier.fillMaxWidth()
-                        ) { Text("Put on pitch") }
-                    }
+                    ) { Text("Injury or sent off") }
+                }
+                // Substitutions happen only in substitution mode.
+                if (liveActionsEnabled && (isOnPitch || player.id in eligibleBenchIds)) {
                     OutlinedButton(
-                        onClick = {
-                            selectedPlayerId = null
-                            substitutionIncomingId = player.id
-                            substitutionOutgoingId = null
-                            substitutionSheetOpen = true
-                        },
-                        enabled = onPitch.isNotEmpty(),
+                        onClick = ::enterSubstitutionMode,
                         modifier = Modifier.fillMaxWidth()
-                    ) { Text("Choose player to replace") }
+                    ) { Text("Open substitution mode") }
                 }
             }
         }
@@ -705,45 +683,12 @@ fun LiveMatchScreen(
         )
     }
 
-    if (substitutionSheetOpen) {
-        SubstitutionSheet(
-            onPitchIds = onPitch.map { it.playerId },
-            benchIds = eligibleBenchIds.toList(),
-            playersById = playersById,
-            initialOutgoingId = substitutionOutgoingId,
-            initialIncomingId = substitutionIncomingId,
-            onDismiss = {
-                substitutionSheetOpen = false
-                substitutionOutgoingId = null
-                substitutionIncomingId = null
-            },
-            onConfirm = { outgoingId, incomingId ->
-                runLiveAction {
-                    vm.substitutePlayer(matchId, outgoingId, incomingId)
-                }
-                scope.launch {
-                    snackbarHostState.showSnackbar(
-                        "${playersById[outgoingId]?.name ?: "Player"} off • " +
-                            "${playersById[incomingId]?.name ?: "Substitute"} on"
-                    )
-                }
-                substitutionSheetOpen = false
-                substitutionOutgoingId = null
-                substitutionIncomingId = null
-            }
-        )
-    }
-
     removalPlayerId?.let { playerId ->
         AlertDialog(
             onDismissRequest = { removalPlayerId = null },
-            title = { Text("Remove ${playersById[playerId]?.name ?: "player"}?") },
+            title = { Text("Take ${playersById[playerId]?.name ?: "player"} off?") },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    TextButton(onClick = {
-                        vm.removePlayerFromPitch(matchId, playerId, ParticipationReason.BENCH)
-                        removalPlayerId = null
-                    }) { Text(if (current.rollingSubstitutions) "Move to bench" else "Remove • cannot return") }
                     TextButton(onClick = {
                         vm.removePlayerFromPitch(matchId, playerId, ParticipationReason.INJURY)
                         removalPlayerId = null
@@ -949,76 +894,6 @@ private fun RecordingStatusChip(
             }
         )
     )
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun SubstitutionSheet(
-    onPitchIds: List<Long>,
-    benchIds: List<Long>,
-    playersById: Map<Long, Player>,
-    initialOutgoingId: Long?,
-    initialIncomingId: Long?,
-    onDismiss: () -> Unit,
-    onConfirm: (Long, Long) -> Unit
-) {
-    var outgoingId by remember(initialOutgoingId) { mutableStateOf(initialOutgoingId) }
-    var incomingId by remember(initialIncomingId) { mutableStateOf(initialIncomingId) }
-
-    ModalBottomSheet(onDismissRequest = onDismiss) {
-        Column(
-            Modifier.fillMaxWidth().padding(horizontal = 20.dp).padding(bottom = 28.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            Text("Make substitution", style = MaterialTheme.typography.headlineSmall)
-            Text("Choose both players before confirming. No player is selected automatically.")
-
-            Text("Player off", style = MaterialTheme.typography.titleMedium)
-            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                items(onPitchIds, key = { "off-$it" }) { playerId ->
-                    playersById[playerId]?.let { player ->
-                        FilterChip(
-                            selected = outgoingId == playerId,
-                            onClick = { outgoingId = playerId },
-                            label = { Text("#${player.shirtNumber} ${player.name}", maxLines = 1) },
-                            modifier = Modifier.heightIn(min = 48.dp)
-                        )
-                    }
-                }
-            }
-
-            Text("Player on", style = MaterialTheme.typography.titleMedium)
-            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                items(benchIds, key = { "on-$it" }) { playerId ->
-                    playersById[playerId]?.let { player ->
-                        FilterChip(
-                            selected = incomingId == playerId,
-                            onClick = { incomingId = playerId },
-                            label = { Text("#${player.shirtNumber} ${player.name}", maxLines = 1) },
-                            modifier = Modifier.heightIn(min = 48.dp)
-                        )
-                    }
-                }
-            }
-
-            val outgoing = outgoingId
-            val incoming = incomingId
-            Button(
-                onClick = { if (outgoing != null && incoming != null) onConfirm(outgoing, incoming) },
-                enabled = outgoing != null && incoming != null,
-                modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp)
-            ) {
-                Text(
-                    if (outgoing != null && incoming != null) {
-                        "Confirm: ${playersById[outgoing]?.name} off • ${playersById[incoming]?.name} on"
-                    } else {
-                        "Select player off and player on"
-                    },
-                    maxLines = 2
-                )
-            }
-        }
-    }
 }
 
 @Composable

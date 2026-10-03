@@ -1,35 +1,21 @@
-# MatchReview icon suggestions
+# MatchReview app icon
 
-## Implemented: Concept A — Pitch Replay
+## Implemented: Coach board
 
-The app now uses an adaptive launcher icon combining:
+The launcher icon is a clipboard holding a tactics pitch with an X, an O and a movement
+arrow, on a slate-blue background. It reads as a coaching tool, stays legible at small
+sizes, works with round and rounded-square launcher masks, and has a single-colour layer
+for Android 13+ themed icons.
 
-- a dark emerald football pitch;
-- white pitch markings;
-- a warm amber replay/play symbol;
-- a monochrome Android themed-icon layer.
+- Launcher resources: `app/src/main/res/drawable/ic_launcher_{foreground,background,monochrome}.xml`
+- Source artwork: [`docs/icons/options/3-coach-board.svg`](docs/icons/options/3-coach-board.svg)
+  and a 1024 px render [`docs/icons/options/3-coach-board.png`](docs/icons/options/3-coach-board.png)
+- Play Store icon (512 px): [`docs/icons/app-icon-512.png`](docs/icons/app-icon-512.png)
 
-This is the strongest fit because it communicates both parts of the product immediately:
-**football** and **video review**. Source files are in `app/src/main/res`, and a scalable
-preview is available at [`docs/icons/concept-a-pitch-replay.svg`](docs/icons/concept-a-pitch-replay.svg).
+## Other concepts considered
 
-## Alternatives
-
-### Concept B — Tactical Board
-
-A navy tactical board with player markers and a movement arrow. This feels more
-coach-oriented and analytical, but communicates video less clearly.
-
-Preview: [`docs/icons/concept-b-tactical-board.svg`](docs/icons/concept-b-tactical-board.svg)
-
-### Concept C — MR Ball
-
-A football combined with an `MR` monogram. This is more brand-like and distinctive,
-but the small lettering may be less readable on compact launcher displays.
-
-Preview: [`docs/icons/concept-c-mr-ball.svg`](docs/icons/concept-c-mr-ball.svg)
-
-## Recommendation
-
-Keep **Concept A** for the first release. It remains legible at small sizes, works with
-round and squircle launcher masks, and supports Android 13+ themed icons.
+- [`docs/icons/options/`](docs/icons/options/) — pitch tactics, replay ball, match clock and
+  MR monogram ([overview](docs/icons/options/icon-options-overview.png)).
+- [`docs/icons/players/`](docs/icons/players/) — football-player silhouettes: striker kick,
+  dribble, keeper dive, header and celebration ([overview](docs/icons/players/icon-options-overview.png)).
+- `docs/icons/concept-*.svg` — the earlier pitch-replay icon and its alternatives.

@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 108 108">
+<rect width="108" height="108" fill="#12233F"/>
+<g transform="translate(54 54) scale(0.8) translate(-54 -54)">
+<path d="M26 44 H34 M24 52 H33 M27 60 H35" stroke="#FFB454" stroke-width="2.6" stroke-linecap="round"/><circle cx="57" cy="28" r="5.5" fill="#FFFFFF"/><path d="M55.5 36.5 L50 53" fill="none" stroke="#FFFFFF" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"/><path d="M54 39.5 L45 44 L40.5 50.5" fill="none" stroke="#FFFFFF" stroke-width="4.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M57 39.5 L64.5 44.5 L70.5 40.5" fill="none" stroke="#FFFFFF" stroke-width="4.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M49.5 54 L42 61 L35 60.5" fill="none" stroke="#FFFFFF" stroke-width="6.2" stroke-linecap="round" stroke-linejoin="round"/><path d="M51 54.5 L58 65.5 L54.5 78.5 L59 79.5" fill="none" stroke="#FFFFFF" stroke-width="6.2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="67" cy="77" r="5.2" fill="#FFB454"/><polygon points="67.00,74.82 69.08,76.33 68.28,78.77 65.72,78.77 64.92,76.33" fill="#12233F"/><path d="M67.00 74.82 L67.00 72.22 M69.08 76.33 L71.55 75.52 M68.28 78.77 L69.81 80.87 M65.72 78.77 L64.19 80.87 M64.92 76.33 L62.45 75.52 " stroke="#12233F" stroke-width="0.83" stroke-linecap="round"/>
+</g>
+</svg>

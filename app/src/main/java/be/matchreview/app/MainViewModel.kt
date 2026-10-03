@@ -295,20 +295,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
 
-    fun substitutePlayer(matchId: Long, outgoingPlayerId: Long, incomingPlayerId: Long) =
-        viewModelScope.launch {
-            val now = SystemClock.elapsedRealtime()
-            val key = "$matchId:sub:$outgoingPlayerId:$incomingPlayerId"
-            if (!liveCommandGate.accept(key, now)) return@launch
-            repository.substitutePlayer(
-                matchId,
-                outgoingPlayerId,
-                incomingPlayerId,
-                now,
-                System.currentTimeMillis()
-            )
-        }
-
     /** Applies a substitution-mode round; [done] receives false when it was rejected. */
     fun applySubstitutionRound(
         matchId: Long,
@@ -329,15 +315,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             matchId,
             playerId,
             reason,
-            SystemClock.elapsedRealtime(),
-            System.currentTimeMillis()
-        )
-    }
-
-    fun putPlayerOnPitch(matchId: Long, playerId: Long) = viewModelScope.launch {
-        repository.putPlayerOnPitch(
-            matchId,
-            playerId,
             SystemClock.elapsedRealtime(),
             System.currentTimeMillis()
         )
