@@ -1,38 +1,44 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- Coach board: a clipboard holding a tactics pitch with an X, an O and a movement arrow.
+     Source artwork: docs/icons/options/3-coach-board.svg (108 x 108 adaptive-icon grid). -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
+    <!-- Board -->
     <path
-        android:fillColor="#00000000"
-        android:pathData="M22,20 L86,20 L86,88 L22,88 Z"
-        android:strokeColor="#FFFFFFFF"
-        android:strokeLineCap="round"
-        android:strokeLineJoin="round"
-        android:strokeWidth="4" />
-    <path
-        android:fillColor="#00000000"
-        android:pathData="M22,54 L86,54"
-        android:strokeColor="#FFFFFFFF"
-        android:strokeLineCap="round"
-        android:strokeWidth="3" />
-    <path
-        android:fillColor="#00000000"
-        android:pathData="M62,54 A8,8 0,1 1,46 54 A8,8 0,1 1,62 54"
-        android:strokeColor="#FFFFFFFF"
-        android:strokeWidth="3" />
+        android:fillColor="#FFF4F1E8"
+        android:pathData="M40,28 H68 A5,5 0,0 1,73,33 V77 A5,5 0,0 1,68,82 H40 A5,5 0,0 1,35,77 V33 A5,5 0,0 1,40,28 Z" />
+    <!-- Clip -->
     <path
         android:fillColor="#FFFFB454"
-        android:pathData="M50,43 L50,65 L68,54 Z"
-        android:strokeColor="#FF075E4B"
-        android:strokeLineJoin="round"
-        android:strokeWidth="2" />
+        android:pathData="M48.5,24 H59.5 A2.5,2.5 0,0 1,62,26.5 V29.5 A2.5,2.5 0,0 1,59.5,32 H48.5 A2.5,2.5 0,0 1,46,29.5 V26.5 A2.5,2.5 0,0 1,48.5,24 Z" />
+    <!-- Pitch -->
     <path
-        android:fillColor="#00000000"
-        android:pathData="M22,36 L31,36 L31,20 M77,20 L77,36 L86,36 M22,72 L31,72 L31,88 M77,88 L77,72 L86,72"
+        android:fillColor="#FF2E8B57"
+        android:pathData="M42,36 H66 A2,2 0,0 1,68,38 V74 A2,2 0,0 1,66,76 H42 A2,2 0,0 1,40,74 V38 A2,2 0,0 1,42,36 Z" />
+    <path
+        android:pathData="M40,56 H68"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="1.4" />
+    <!-- X and O -->
+    <path
+        android:pathData="M44.5,43.5 L49.5,48.5 M49.5,43.5 L44.5,48.5"
         android:strokeColor="#FFFFFFFF"
         android:strokeLineCap="round"
-        android:strokeLineJoin="round"
-        android:strokeWidth="3" />
+        android:strokeWidth="2.2" />
+    <path
+        android:pathData="M64.4,66 A3.4,3.4 0,1 1,57.6,66 A3.4,3.4 0,1 1,64.4,66 Z"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="2.2" />
+    <!-- Movement arrow -->
+    <path
+        android:pathData="M50,51 C54,58 56,60 58.5,62.5"
+        android:strokeColor="#FFFFC247"
+        android:strokeLineCap="round"
+        android:strokeWidth="2.2" />
+    <path
+        android:fillColor="#FFFFC247"
+        android:pathData="M55,63.5 L60.3,64.6 L59.2,59.3 Z" />
 </vector>
