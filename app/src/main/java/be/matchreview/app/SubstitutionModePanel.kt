@@ -1,5 +1,7 @@
 package be.matchreview.app
 
+import be.matchreview.app.ui.AppButton
+import be.matchreview.app.ui.AppOutlinedButton
 import android.os.SystemClock
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
@@ -264,12 +266,12 @@ internal fun SubstitutionModePanel(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            OutlinedButton(
+            AppOutlinedButton(
                 onClick = onCancel,
                 enabled = drag == null,
                 modifier = Modifier.weight(1f).heightIn(min = 48.dp)
             ) { Text(if (changes.isEmpty) "Close" else "Discard") }
-            Button(
+            AppButton(
                 onClick = { if (changes.isEmpty) onCancel() else onConfirm(plan.values.toList()) },
                 enabled = drag == null,
                 modifier = Modifier.weight(1.4f).heightIn(min = 48.dp)

@@ -1,5 +1,8 @@
 package be.matchreview.app
 
+import be.matchreview.app.ui.AppButton
+import be.matchreview.app.ui.AppOutlinedButton
+import be.matchreview.app.ui.AppTonalButton
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -274,19 +277,19 @@ fun LineupBuilderScreen(
                         horizontalArrangement = Arrangement.spacedBy(5.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        OutlinedButton(
+                        AppOutlinedButton(
                             onClick = { showAutoPlaceConfirmation = true },
                             enabled = selectedPlayers.isNotEmpty() && dragState == null,
                             contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp),
                             modifier = Modifier.weight(0.9f).heightIn(min = 48.dp)
 ) { Text("Auto-place", maxLines = 1) }
-                        OutlinedButton(
+                        AppOutlinedButton(
                             onClick = { nav.navigate("squad/$matchId") },
                             enabled = dragState == null,
                             contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp),
                             modifier = Modifier.weight(0.9f).heightIn(min = 48.dp)
 ) { Text("Squad", maxLines = 1) }
-                        Button(
+                        AppButton(
                             enabled = onPitch.isNotEmpty() && dragState == null,
                             onClick = {
                                 if (onPitch.size < current.playersOnPitch) {
@@ -384,7 +387,7 @@ fun LineupBuilderScreen(
                 )
             },
             confirmButton = {
-                Button(
+                AppButton(
                     onClick = {
                         showAutoPlaceConfirmation = false
                         vm.autoPlaceLineup(matchId, selectedPlayers, slots)
@@ -437,7 +440,7 @@ private fun LineupHeader(match: GameMatch, onPitch: Int, selected: Int) {
                 Text("vs ${match.opponent} • ${match.formation}", style = MaterialTheme.typography.bodySmall)
             }
             Surface(
-                shape = RoundedCornerShape(18.dp),
+                shape = MaterialTheme.shapes.small,
                 color = MaterialTheme.colorScheme.surface.copy(alpha = 0.8f)
             ) {
                 Text(
@@ -474,14 +477,8 @@ internal fun PitchView(
         modifier = modifier
             .testTag(LineupTestTags.PITCH)
             .onGloballyPositioned { onBoundsChanged(it.boundsInRoot()) }
-            .clip(RoundedCornerShape(18.dp))
-            .background(
-                if (isDropTarget) {
-                    Brush.verticalGradient(listOf(Color(0xFF8BCB56), Color(0xFF69B442), Color(0xFF55A23A)))
-                } else {
-                    Brush.verticalGradient(listOf(Color(0xFF79B94A), Color(0xFF5FA63B), Color(0xFF4A9134)))
-                }
-            )
+            .clip(RoundedCornerShape(16.dp))
+            .background(if (isDropTarget) PitchColors.dropTarget else PitchColors.grass)
     ) {
         val density = LocalDensity.current
         val widthPx = with(density) { maxWidth.toPx() }
@@ -552,6 +549,12 @@ internal fun PitchView(
             )
         }
     }
+}
+
+/** The same grass on every pitch in the app. */
+internal object PitchColors {
+    val grass = Brush.verticalGradient(listOf(Color(0xFF79B94A), Color(0xFF5FA63B), Color(0xFF4A9134)))
+    val dropTarget = Brush.verticalGradient(listOf(Color(0xFF8BCB56), Color(0xFF69B442), Color(0xFF55A23A)))
 }
 
 @Composable
@@ -911,7 +914,7 @@ private fun PlayerPlacementSheet(
             )
 
             if (!placement.onPitch) {
-                Button(
+                AppButton(
                     onClick = { onMoveToPitch(nearestAvailable) },
                     enabled = !pitchFull,
                     modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
@@ -919,14 +922,14 @@ private fun PlayerPlacementSheet(
             } else {
                 Text("Fine position", style = MaterialTheme.typography.titleMedium)
                 Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
-                    FilledTonalButton(onClick = { onNudge(0f, -0.05f) }) { Text("↑ Forward") }
+                    AppTonalButton(onClick = { onNudge(0f, -0.05f) }) { Text("↑ Forward") }
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        FilledTonalButton(onClick = { onNudge(-0.05f, 0f) }) { Text("← Left") }
-                        FilledTonalButton(onClick = { onNudge(0.05f, 0f) }) { Text("Right →") }
+                        AppTonalButton(onClick = { onNudge(-0.05f, 0f) }) { Text("← Left") }
+                        AppTonalButton(onClick = { onNudge(0.05f, 0f) }) { Text("Right →") }
                     }
-                    FilledTonalButton(onClick = { onNudge(0f, 0.05f) }) { Text("↓ Back") }
+                    AppTonalButton(onClick = { onNudge(0f, 0.05f) }) { Text("↓ Back") }
                 }
-                OutlinedButton(onClick = onMoveToBench, modifier = Modifier.fillMaxWidth()) {
+                AppOutlinedButton(onClick = onMoveToBench, modifier = Modifier.fillMaxWidth()) {
                     Text("Move to bench")
                 }
             }

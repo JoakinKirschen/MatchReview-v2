@@ -1,5 +1,8 @@
 package be.matchreview.app.recording
 
+import be.matchreview.app.ui.AppButton
+import be.matchreview.app.ui.AppOutlinedButton
+import be.matchreview.app.ui.AppTonalButton
 import android.Manifest
 import android.content.Context
 import android.content.Intent
@@ -18,9 +21,20 @@ import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Cameraswitch
+import androidx.compose.material.icons.filled.FlashOff
+import androidx.compose.material.icons.filled.FlashOn
+import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.MicOff
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
@@ -181,12 +195,36 @@ fun CameraMatchPanel(
         }
     }
 
+    val cameraIdle = state is CameraRecordingState.Idle || state is CameraRecordingState.Error
+    val recording = state is CameraRecordingState.Recording
+
+    fun toggleRecording() {
+        when (state) {
+            is CameraRecordingState.Recording -> MatchRecordingService.requestStop(context, matchClockMs)
+            is CameraRecordingState.Idle, is CameraRecordingState.Error -> {
+                if (!storageHealth.canStartRecording) {
+                    permissionMessage = "Not enough free storage to start a safe recording."
+                } else if (hasRequiredPermissions()) {
+                    startRecording()
+                } else {
+                    pendingStart = true
+                    permissionLauncher.launch(permissionsNeeded())
+                }
+            }
+            else -> Unit
+        }
+    }
+
     Column(
         modifier.fillMaxSize(),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         Box(
-            Modifier.fillMaxWidth().weight(1f).background(Color.Black, RoundedCornerShape(18.dp))
+            Modifier
+                .fillMaxWidth()
+                .weight(1f)
+                .clip(RoundedCornerShape(16.dp))
+                .background(Color.Black)
         ) {
             AndroidView(
                 factory = { ctx ->
@@ -199,253 +237,202 @@ fun CameraMatchPanel(
                 modifier = Modifier.fillMaxSize()
             )
 
+            // Status top left, match clock top right.
             val recordingState = state as? CameraRecordingState.Recording
+            var now by remember { mutableLongStateOf(SystemClock.elapsedRealtime()) }
             if (recordingState != null) {
-                var now by remember { mutableLongStateOf(SystemClock.elapsedRealtime()) }
                 LaunchedEffect(recordingState.segmentId) {
                     while (true) {
                         now = SystemClock.elapsedRealtime()
                         delay(250)
                     }
                 }
-                Surface(
-                    color = Color(0xCCB00020),
-                    shape = RoundedCornerShape(20.dp),
-                    modifier = Modifier.align(Alignment.TopStart).padding(12.dp)
-                ) {
-                    Text(
-                        "● REC ${MatchClockCalculator.formatClock(now - recordingState.startedAtElapsedRealtimeMs)}",
-                        color = Color.White,
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp)
-                    )
-                }
+            }
+            OverlayPill(
+                text = when (state) {
+                    is CameraRecordingState.Recording ->
+                        "● REC ${MatchClockCalculator.formatClock(now - recordingState!!.startedAtElapsedRealtimeMs)}"
+                    is CameraRecordingState.Preparing -> "Starting…"
+                    is CameraRecordingState.Finalizing -> "Saving…"
+                    is CameraRecordingState.Error -> "Camera problem"
+                    CameraRecordingState.Idle -> if (cameraPermissionGranted) "Ready" else "Camera off"
+                },
+                background = if (recording) Color(0xE6B00020) else Color(0x99000000),
+                modifier = Modifier.align(Alignment.TopStart).padding(10.dp)
+            )
+            OverlayPill(
+                text = MatchClockCalculator.formatClock(matchClockMs),
+                background = Color(0x99000000),
+                modifier = Modifier.align(Alignment.TopEnd).padding(10.dp)
+            )
+
+            val centerMessage = when {
+                state is CameraRecordingState.Error -> (state as CameraRecordingState.Error).message
+                recordingOtherMatch -> "The camera is recording another match. Stop it from the notification first."
+                !cameraPermissionGranted -> "Tap the record button to allow the camera."
+                else -> null
+            }
+            centerMessage?.let {
+                Text(
+                    it,
+                    color = Color.White,
+                    style = MaterialTheme.typography.bodyMedium,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.align(Alignment.Center).padding(32.dp)
+                )
             }
 
-            Surface(
-                color = Color(0xAA000000),
-                shape = RoundedCornerShape(16.dp),
-                modifier = Modifier.align(Alignment.TopEnd).padding(12.dp)
+            // Camera controls along the bottom of the preview, like a camera app.
+            Row(
+                Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .background(Brush.verticalGradient(listOf(Color.Transparent, Color(0x99000000))))
+                    .padding(horizontal = 12.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceEvenly
             ) {
-                Text(
-                    "Match ${MatchClockCalculator.formatClock(matchClockMs)}",
-                    color = Color.White,
-                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                OverlayIconButton(
+                    icon = if (audioEnabled) Icons.Filled.Mic else Icons.Filled.MicOff,
+                    description = if (audioEnabled) "Record without sound" else "Record with sound",
+                    enabled = cameraIdle,
+                    onClick = { audioEnabled = !audioEnabled }
                 )
-            }
-
-            if (state is CameraRecordingState.Error) {
-                Text(
-                    (state as CameraRecordingState.Error).message,
-                    color = Color.White,
-                    modifier = Modifier.align(Alignment.Center).padding(24.dp)
-                )
-            }
-
-            if (quickActionsEnabled) {
-                Surface(
-                    color = Color(0xAA101810),
-                    shape = RoundedCornerShape(18.dp),
-                    modifier = Modifier.align(Alignment.BottomCenter).padding(12.dp)
-                ) {
-                    Row(
-                        Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        FilledTonalButton(onClick = onOurGoal, modifier = Modifier.heightIn(min = 48.dp)) { Text("Our goal") }
-                        FilledTonalButton(onClick = onSubstitution, modifier = Modifier.heightIn(min = 48.dp)) { Text("Substitute") }
-                        FilledTonalButton(onClick = onOpponentGoal, modifier = Modifier.heightIn(min = 48.dp)) { Text("Opponent goal") }
+                OverlayIconButton(
+                    icon = Icons.Filled.Cameraswitch,
+                    description = "Switch camera",
+                    enabled = cameraIdle,
+                    onClick = {
+                        CameraRecordingController.chooseLens(
+                            if (lens == CameraLens.BACK) CameraLens.FRONT else CameraLens.BACK
+                        )
                     }
-                }
-            }
-        }
-
-        if (storageHealth.level != StorageLevel.OK) {
-            Surface(
-                color = if (storageHealth.level == StorageLevel.CRITICAL)
-                    MaterialTheme.colorScheme.errorContainer
-                else MaterialTheme.colorScheme.tertiaryContainer,
-                shape = RoundedCornerShape(12.dp),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Text(
-                    if (storageHealth.level == StorageLevel.CRITICAL)
-                        "Recording blocked: only ${StorageHealthRules.formatAvailable(storageHealth.availableBytes)} free. Free at least 250 MB."
-                    else
-                        "Low storage: ${StorageHealthRules.formatAvailable(storageHealth.availableBytes)} free. Shorter recording segments are recommended.",
-                    modifier = Modifier.padding(10.dp),
-                    style = MaterialTheme.typography.bodySmall
                 )
+                RecordButton(
+                    recording = recording,
+                    enabled = !recordingOtherMatch &&
+                        state !is CameraRecordingState.Preparing && state !is CameraRecordingState.Finalizing,
+                    onClick = ::toggleRecording
+                )
+                OverlayIconButton(
+                    icon = if (torch) Icons.Filled.FlashOn else Icons.Filled.FlashOff,
+                    description = if (torch) "Turn torch off" else "Turn torch on",
+                    enabled = lens == CameraLens.BACK &&
+                        (state is CameraRecordingState.Recording || state is CameraRecordingState.Preparing),
+                    onClick = { CameraRecordingController.setTorch(!torch) }
+                )
+                // Keeps the record button centred.
+                Spacer(Modifier.size(48.dp))
             }
         }
 
-        val recordingBudget = StorageBudgetRules.recordingBudget(storageHealth.availableBytes)
+        if (quickActionsEnabled) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                AppButton(onClick = onOurGoal, modifier = Modifier.weight(1f)) { Text("Our goal", maxLines = 1) }
+                AppTonalButton(onClick = onSubstitution, modifier = Modifier.weight(1f)) { Text("Substitute", maxLines = 1) }
+                AppOutlinedButton(onClick = onOpponentGoal, modifier = Modifier.weight(1f)) { Text("Their goal", maxLines = 1) }
+            }
+        }
+
+        // One quiet line about clips and space; warnings only when something needs attention.
+        val budget = StorageBudgetRules.recordingBudget(storageHealth.availableBytes)
+        val saved = recordings.filter { it.status == RecordingStatus.COMPLETED }
+        val failed = recordings.count { it.status == RecordingStatus.FAILED || it.status == RecordingStatus.INTERRUPTED }
+        val storageProblem = storageHealth.level != StorageLevel.OK || !budget.canStart
         Text(
-            recordingBudget.message,
-            style = MaterialTheme.typography.labelSmall,
-            color = if (recordingBudget.canStart) MaterialTheme.colorScheme.onSurfaceVariant
-                else MaterialTheme.colorScheme.error
+            listOfNotNull(
+                when (saved.size) {
+                    0 -> "No clips yet"
+                    1 -> "1 clip"
+                    else -> "${saved.size} clips"
+                } + saved.sumOf { it.recordingDurationMs }.takeIf { it > 0 }
+                    ?.let { " • ${MatchClockCalculator.formatClock(it)}" }.orEmpty(),
+                "$failed failed".takeIf { failed > 0 },
+                if (storageProblem) budget.message
+                else "${StorageHealthRules.formatAvailable(storageHealth.availableBytes)} free"
+            ).joinToString("  •  "),
+            style = MaterialTheme.typography.labelMedium,
+            color = if (storageProblem || failed > 0) MaterialTheme.colorScheme.error
+            else MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 2,
+            modifier = Modifier.padding(horizontal = 4.dp)
         )
 
-        if (recordingOtherMatch) {
-            Text(
-                "The camera is recording another match. Stop that recording from the notification first.",
-                color = MaterialTheme.colorScheme.error,
-                style = MaterialTheme.typography.bodySmall
-            )
-        }
-
         permissionMessage?.let { message ->
-            Card(
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)
+            Surface(
+                color = MaterialTheme.colorScheme.errorContainer,
+                shape = MaterialTheme.shapes.medium,
+                modifier = Modifier.fillMaxWidth()
             ) {
-                Column(
-                    Modifier.fillMaxWidth().padding(12.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                Row(
+                    Modifier.padding(start = 12.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(message, style = MaterialTheme.typography.bodySmall)
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        TextButton(onClick = {
-                            permissionLauncher.launch(permissionsNeeded())
-                        }) { Text("Try again") }
-                        TextButton(onClick = {
-                            context.startActivity(
-                                Intent(
-                                    Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
-                                    Uri.parse("package:${context.packageName}")
-                                )
+                    Text(message, style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f))
+                    TextButton(onClick = {
+                        context.startActivity(
+                            Intent(
+                                Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                                Uri.parse("package:${context.packageName}")
                             )
-                        }) { Text("Open app settings") }
-                    }
+                        )
+                    }) { Text("Settings") }
                 }
             }
         }
+    }
+}
 
-        Row(
-            Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceEvenly
-        ) {
-            IconButton(
-                onClick = {
-                    CameraRecordingController.chooseLens(
-                        if (lens == CameraLens.BACK) CameraLens.FRONT else CameraLens.BACK
-                    )
-                },
-                modifier = Modifier.semantics { contentDescription = "Switch camera" },
-                enabled = state is CameraRecordingState.Idle || state is CameraRecordingState.Error
-            ) { Text(if (lens == CameraLens.BACK) "↺" else "↻") }
+@Composable
+private fun OverlayPill(text: String, background: Color, modifier: Modifier = Modifier) {
+    Text(
+        text,
+        color = Color.White,
+        style = MaterialTheme.typography.labelLarge,
+        fontWeight = FontWeight.Bold,
+        modifier = modifier
+            .background(background, RoundedCornerShape(12.dp))
+            .padding(horizontal = 10.dp, vertical = 5.dp)
+    )
+}
 
-            FilledIconButton(
-                onClick = {
-                    when (state) {
-                        is CameraRecordingState.Recording -> {
-                            MatchRecordingService.requestStop(context, matchClockMs)
-                        }
-                        is CameraRecordingState.Idle, is CameraRecordingState.Error -> {
-                            if (!storageHealth.canStartRecording) {
-                                permissionMessage = "Not enough free storage to start a safe recording."
-                            } else if (hasRequiredPermissions()) {
-                                startRecording()
-                            } else {
-                                pendingStart = true
-                                permissionLauncher.launch(permissionsNeeded())
-                            }
-                        }
-                        else -> Unit
-                    }
-                },
-                enabled = !recordingOtherMatch,
-                modifier = Modifier
-                    .size(72.dp)
-                    .semantics {
-                        contentDescription = if (state is CameraRecordingState.Recording)
-                            "Stop and save recording" else "Start recording"
-                    },
-                shape = CircleShape,
-                colors = IconButtonDefaults.filledIconButtonColors(
-                    containerColor = if (state is CameraRecordingState.Recording)
-                        MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
-                )
-            ) {
-                Text(if (state is CameraRecordingState.Recording) "■" else "●")
-            }
+@Composable
+private fun OverlayIconButton(
+    icon: ImageVector,
+    description: String,
+    enabled: Boolean,
+    onClick: () -> Unit
+) {
+    IconButton(
+        onClick = onClick,
+        enabled = enabled,
+        colors = IconButtonDefaults.iconButtonColors(
+            containerColor = Color(0x66000000),
+            contentColor = Color.White,
+            disabledContainerColor = Color(0x33000000),
+            disabledContentColor = Color.White.copy(alpha = 0.38f)
+        ),
+        modifier = Modifier.size(48.dp)
+    ) { Icon(icon, contentDescription = description) }
+}
 
-            IconButton(
-                onClick = { CameraRecordingController.setTorch(!torch) },
-                modifier = Modifier.semantics {
-                    contentDescription = if (torch) "Turn torch off" else "Turn torch on"
-                },
-                enabled = lens == CameraLens.BACK &&
-                    (state is CameraRecordingState.Recording || state is CameraRecordingState.Preparing)
-            ) { Text(if (torch) "☀" else "◐") }
-        }
-
-        Row(
-            Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Switch(
-                    checked = audioEnabled,
-                    onCheckedChange = { audioEnabled = it },
-                    enabled = state !is CameraRecordingState.Recording &&
-                        state !is CameraRecordingState.Preparing &&
-                        state !is CameraRecordingState.Finalizing
-                )
-                Spacer(Modifier.width(8.dp))
-                Column {
-                    Text(if (audioEnabled) "Audio on" else "Audio off")
-                    Text(
-                        if (audioEnabled) "Microphone permission is requested when recording starts."
-                        else "Silent recording; microphone permission is not requested.",
-                        style = MaterialTheme.typography.bodySmall
-                    )
-                }
-            }
-            Text(
-                when (state) {
-                    CameraRecordingState.Idle -> "Ready"
-                    is CameraRecordingState.Preparing -> "Preparing…"
-                    is CameraRecordingState.Recording -> "Recording"
-                    is CameraRecordingState.Finalizing -> "Saving…"
-                    is CameraRecordingState.Error -> "Check camera"
-                },
-                style = MaterialTheme.typography.labelLarge
-            )
-        }
-
-        Text("Video segments", style = MaterialTheme.typography.titleSmall)
-        if (recordings.isEmpty()) {
-            Text("No clips recorded yet.", style = MaterialTheme.typography.bodySmall)
-        } else {
-            LazyColumn(
-                Modifier.fillMaxWidth().heightIn(max = 120.dp),
-                verticalArrangement = Arrangement.spacedBy(4.dp)
-            ) {
-                items(recordings.asReversed(), key = { it.id }) { segment ->
-                    ListItem(
-                        headlineContent = {
-                            Text(
-                                "${MatchClockCalculator.formatClock(segment.matchClockStartMs)} – " +
-                                    (segment.matchClockEndMs?.let(MatchClockCalculator::formatClock) ?: "now")
-                            )
-                        },
-                        supportingContent = {
-                            Text(
-                                when (segment.status) {
-                                    RecordingStatus.COMPLETED ->
-                                        "${segment.recordingDurationMs / 1000}s • ${if (segment.audioEnabled) "audio" else "silent"}"
-                                    RecordingStatus.FAILED, RecordingStatus.INTERRUPTED ->
-                                        segment.errorMessage ?: segment.status.name.lowercase()
-                                    else -> segment.status.name.lowercase()
-                                }
-                            )
-                        },
-                        trailingContent = { Text(segment.status.name.take(4)) }
-                    )
-                }
-            }
-        }
+/** White ring with a red dot to start, a red square to stop. */
+@Composable
+private fun RecordButton(recording: Boolean, enabled: Boolean, onClick: () -> Unit) {
+    Box(
+        Modifier
+            .size(72.dp)
+            .clip(CircleShape)
+            .border(4.dp, Color.White.copy(alpha = if (enabled) 1f else 0.4f), CircleShape)
+            .clickable(enabled = enabled, onClick = onClick)
+            .semantics { contentDescription = if (recording) "Stop and save recording" else "Start recording" },
+        contentAlignment = Alignment.Center
+    ) {
+        Box(
+            Modifier
+                .size(if (recording) 28.dp else 54.dp)
+                .clip(if (recording) RoundedCornerShape(6.dp) else CircleShape)
+                .background(Color(0xFFE53935).copy(alpha = if (enabled) 1f else 0.4f))
+        )
     }
 }

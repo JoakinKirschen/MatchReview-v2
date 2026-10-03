@@ -1,5 +1,7 @@
 package be.matchreview.app
 
+import be.matchreview.app.ui.AppButton
+import be.matchreview.app.ui.AppOutlinedButton
 import android.os.StatFs
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -51,7 +53,7 @@ fun MatchReadinessScreen(
     val fullLineup = starters.size == current.playersOnPitch
 
     Column(
-        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp),
+        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
         Text("Match-day check", style = MaterialTheme.typography.headlineMedium)
@@ -94,11 +96,11 @@ fun MatchReadinessScreen(
         )
 
         Spacer(Modifier.height(8.dp))
-        OutlinedButton(
+        AppOutlinedButton(
             onClick = { nav.navigate("lineup/$matchId") },
             modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
         ) { Text("Review lineup") }
-        Button(
+        AppButton(
             onClick = {
                 nav.navigate("live/$matchId") {
                     popUpTo("ready/$matchId") { inclusive = true }

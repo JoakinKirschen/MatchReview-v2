@@ -2,6 +2,9 @@
 
 package be.matchreview.app
 
+import be.matchreview.app.ui.AppButton
+import be.matchreview.app.ui.AppOutlinedButton
+import be.matchreview.app.ui.AppTonalButton
 import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Build
@@ -504,7 +507,7 @@ fun LiveMatchScreen(
                 Surface(
                     color = Color(0xFFFFC247),
                     contentColor = Color(0xFF1B1B1F),
-                    shape = RoundedCornerShape(10.dp),
+                    shape = MaterialTheme.shapes.small,
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Row(
@@ -536,7 +539,7 @@ fun LiveMatchScreen(
             if (clockRecovery?.confidence == ClockRecoveryConfidence.NEEDS_CONFIRMATION) {
                 Surface(
                     color = MaterialTheme.colorScheme.errorContainer,
-                    shape = RoundedCornerShape(10.dp),
+                    shape = MaterialTheme.shapes.small,
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Text(
@@ -552,19 +555,19 @@ fun LiveMatchScreen(
                     Modifier.fillMaxWidth().heightIn(min = 56.dp),
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    Button(
+                    AppButton(
                         onClick = ::recordQuickGoal,
                         enabled = !liveActionLocked,
                         contentPadding = PaddingValues(horizontal = 6.dp),
                         modifier = Modifier.weight(1f).heightIn(min = 52.dp)
                     ) { Text(stringResource(R.string.our_goal), maxLines = 1, overflow = TextOverflow.Ellipsis) }
-                    OutlinedButton(
+                    AppOutlinedButton(
                         onClick = { showOpponentGoalConfirmation = true },
                         enabled = !liveActionLocked,
                         contentPadding = PaddingValues(horizontal = 6.dp),
                         modifier = Modifier.weight(1f).heightIn(min = 52.dp)
                     ) { Text(stringResource(R.string.their_goal), maxLines = 1, overflow = TextOverflow.Ellipsis) }
-                    FilledTonalButton(
+                    AppTonalButton(
                         onClick = ::startSave,
                         enabled = !liveActionLocked,
                         contentPadding = PaddingValues(horizontal = 6.dp),
@@ -577,7 +580,7 @@ fun LiveMatchScreen(
                             maxLines = 1
                         )
                     }
-                    OutlinedButton(
+                    AppOutlinedButton(
                         onClick = {
                             runLiveAction { vm.undoLatestScoreAction(matchId) }
                             scope.launch { snackbarHostState.showSnackbar("Latest score action undone") }
@@ -587,7 +590,7 @@ fun LiveMatchScreen(
                         contentPadding = PaddingValues(horizontal = 6.dp),
                         modifier = Modifier.heightIn(min = 52.dp)
                     ) { Text(stringResource(R.string.undo)) }
-                    OutlinedButton(
+                    AppOutlinedButton(
                         onClick = { actionsSheetOpen = true },
                         enabled = !liveActionLocked,
                         contentPadding = PaddingValues(horizontal = 4.dp),
@@ -713,7 +716,7 @@ fun LiveMatchScreen(
                 Text(if (isOnPitch) "Currently on the pitch" else playerStateLabel(squadState))
 
                 if (liveActionsEnabled && isOnPitch) {
-                    Button(
+                    AppButton(
                         onClick = {
                             selectedPlayerId = null
                             pendingGoalScorerId = player.id
@@ -721,14 +724,14 @@ fun LiveMatchScreen(
                         },
                         modifier = Modifier.fillMaxWidth()
                     ) { Text("Record goal") }
-                    OutlinedButton(
+                    AppOutlinedButton(
                         onClick = {
                             selectedPlayerId = null
                             recordSave(player.id)
                         },
                         modifier = Modifier.fillMaxWidth()
                     ) { Text("Record save") }
-                    OutlinedButton(
+                    AppOutlinedButton(
                         onClick = {
                             selectedPlayerId = null
                             removalPlayerId = player.id
@@ -738,7 +741,7 @@ fun LiveMatchScreen(
                 }
                 // Substitutions happen only in substitution mode.
                 if (liveActionsEnabled && (isOnPitch || player.id in eligibleBenchIds)) {
-                    OutlinedButton(
+                    AppOutlinedButton(
                         onClick = ::enterSubstitutionMode,
                         modifier = Modifier.fillMaxWidth()
                     ) { Text("Open substitution mode") }
@@ -1007,7 +1010,7 @@ fun LiveMatchScreen(
             title = { Text("End period ${current.currentPeriod}?") },
             text = { Text("The match clock will stop. You can start the next period afterward.") },
             confirmButton = {
-                Button(
+                AppButton(
                     onClick = {
                         showEndPeriodConfirmation = false
                         runLiveAction { vm.endCurrentPeriod(matchId) }
@@ -1215,20 +1218,20 @@ private fun GoalEditSheet(
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             Text("Edit goal", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-            OutlinedButton(onClick = { choosingScorer = true }, modifier = Modifier.fillMaxWidth()) {
+            AppOutlinedButton(onClick = { choosingScorer = true }, modifier = Modifier.fillMaxWidth()) {
                 Text("Scorer: ${byId[scorer]?.name ?: "Unknown"}")
             }
-            OutlinedButton(onClick = { choosingAssist = true }, modifier = Modifier.fillMaxWidth()) {
+            AppOutlinedButton(onClick = { choosingAssist = true }, modifier = Modifier.fillMaxWidth()) {
                 Text("Assist: ${byId[assist]?.name ?: "None"}")
             }
-            OutlinedButton(onClick = onEditPosition, modifier = Modifier.fillMaxWidth()) {
+            AppOutlinedButton(onClick = onEditPosition, modifier = Modifier.fillMaxWidth()) {
                 Text(
                     "Position in goal: " +
                         (GoalMouthGeometry.describe(event.goalX, event.goalY) ?: "not set")
                 )
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(
+                AppOutlinedButton(
                     onClick = { timeMs = (timeMs - 60_000L).coerceAtLeast(0L) },
                     modifier = Modifier.weight(1f)
                 ) { Text("−1 min") }
@@ -1237,13 +1240,13 @@ private fun GoalEditSheet(
                     modifier = Modifier.align(Alignment.CenterVertically),
                     fontWeight = FontWeight.Bold
                 )
-                OutlinedButton(
+                AppOutlinedButton(
                     onClick = { timeMs = (timeMs + 60_000L).coerceAtMost(maxTimeMs) },
                     enabled = timeMs < maxTimeMs,
                     modifier = Modifier.weight(1f)
                 ) { Text("+1 min") }
             }
-            Button(
+            AppButton(
                 onClick = { onSave(scorer, assist?.takeIf { it != scorer }, timeMs) },
                 modifier = Modifier.fillMaxWidth()
             ) { Text("Save changes") }
@@ -1391,7 +1394,7 @@ private fun ClipButton(
 ) {
     Column(horizontalAlignment = Alignment.End) {
         if (be.matchreview.app.domain.VideoEventRules.isPlayable(event, recordings)) {
-            FilledTonalButton(
+            AppTonalButton(
                 onClick = { onPlayEvent(event) },
                 contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
             ) { Text("▶ Clip") }
@@ -1570,26 +1573,9 @@ private fun LivePitch(
     modifier: Modifier = Modifier
 ) {
     BoxWithConstraints(
-        modifier.clip(RoundedCornerShape(12.dp)).background(Color(0xFF86C440)).padding(2.dp)
+        modifier.clip(RoundedCornerShape(16.dp)).background(PitchColors.grass)
     ) {
-        Canvas(Modifier.fillMaxSize()) {
-            val line = Color.White.copy(alpha = 0.72f)
-            drawRect(line, style = Stroke(width = 3f))
-            drawLine(line, Offset(0f, size.height / 2f), Offset(size.width, size.height / 2f), 3f)
-            drawCircle(line, radius = size.minDimension * 0.13f, center = center, style = Stroke(3f))
-            drawRect(
-                line,
-                topLeft = Offset(size.width * 0.22f, 0f),
-                size = androidx.compose.ui.geometry.Size(size.width * 0.56f, size.height * 0.16f),
-                style = Stroke(3f)
-            )
-            drawRect(
-                line,
-                topLeft = Offset(size.width * 0.22f, size.height * 0.84f),
-                size = androidx.compose.ui.geometry.Size(size.width * 0.56f, size.height * 0.16f),
-                style = Stroke(3f)
-            )
-        }
+        PitchLines(Modifier.fillMaxSize())
         placements.forEach { placement ->
             val player = playersById[placement.playerId] ?: return@forEach
             val marker = 58.dp
@@ -1601,16 +1587,16 @@ private fun LivePitch(
             ) {
                 Surface(
                     shape = CircleShape,
-                    color = Color(0xFFE8EEF7),
+                    color = Color(0xFFF5F7FA),
                     shadowElevation = 4.dp,
-                    modifier = Modifier.size(38.dp)
+                    modifier = Modifier.size(42.dp)
                 ) {
                     Box(contentAlignment = Alignment.Center) {
                         Text(
                             if (player.shirtNumber > 0) player.shirtNumber.toString()
                             else player.name.take(2).uppercase(),
-                            fontWeight = FontWeight.Black,
-                            color = Color(0xFF24324A)
+                            fontWeight = FontWeight.ExtraBold,
+                            color = Color(0xFF1C3D6E)
                         )
                     }
                 }
@@ -1643,7 +1629,7 @@ private fun BenchMinuteCard(
     onClick: () -> Unit
 ) {
     Surface(
-        shape = RoundedCornerShape(10.dp),
+        shape = MaterialTheme.shapes.small,
         tonalElevation = 2.dp,
         color = if (enabled) MaterialTheme.colorScheme.surface else MaterialTheme.colorScheme.surfaceVariant,
         modifier = Modifier.width(78.dp).fillMaxHeight().clickable(enabled = enabled, onClick = onClick)
@@ -1728,30 +1714,30 @@ private fun LiveControlBar(
     ) {
         when (match.status) {
             MatchStatus.LINEUP_READY ->
-                Button(
+                AppButton(
                     onClick = onKickOff,
                     enabled = actionEnabled,
                     modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
                 ) { Text("Kick off • Start period 1") }
             MatchStatus.LIVE -> {
-                Button(
+                AppButton(
                     onClick = onPause,
                     enabled = actionEnabled,
                     modifier = Modifier.weight(1f).heightIn(min = 48.dp)
                 ) { Text("Pause match") }
-                OutlinedButton(
+                AppOutlinedButton(
                     onClick = onEndPeriod,
                     enabled = actionEnabled,
                     modifier = Modifier.weight(1f).heightIn(min = 48.dp)
                 ) { Text("End period") }
             }
             MatchStatus.PAUSED -> {
-                Button(
+                AppButton(
                     onClick = onResume,
                     enabled = actionEnabled,
                     modifier = Modifier.weight(1f).heightIn(min = 48.dp)
                 ) { Text("Resume match") }
-                OutlinedButton(
+                AppOutlinedButton(
                     onClick = onEndPeriod,
                     enabled = actionEnabled,
                     modifier = Modifier.weight(1f).heightIn(min = 48.dp)
@@ -1759,18 +1745,18 @@ private fun LiveControlBar(
             }
             MatchStatus.PERIOD_ENDED -> {
                 if (match.currentPeriod < match.periodCount) {
-                    Button(
+                    AppButton(
                         onClick = onNextPeriod,
                         enabled = actionEnabled,
                         modifier = Modifier.weight(1f).heightIn(min = 48.dp)
                     ) { Text("Start period ${match.currentPeriod + 1}") }
-                    OutlinedButton(
+                    AppOutlinedButton(
                         onClick = onFinish,
                         enabled = actionEnabled,
                         modifier = Modifier.heightIn(min = 48.dp)
                     ) { Text("Finish match") }
                 } else {
-                    Button(
+                    AppButton(
                         onClick = onFinish,
                         enabled = actionEnabled,
                         modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
@@ -1846,7 +1832,7 @@ private fun MatchActionsSheet(
                     listOf(ourType to totals.first, opponentType to totals.second).forEach { (type, total) ->
                         val card = type == MatchActions.YELLOW_CARD || type == MatchActions.OPPONENT_YELLOW_CARD
                         val red = type == MatchActions.DISMISSAL || type == MatchActions.OPPONENT_RED_CARD
-                        FilledTonalButton(
+                        AppTonalButton(
                             onClick = { onAction(type) },
                             colors = when {
                                 card -> ButtonDefaults.filledTonalButtonColors(

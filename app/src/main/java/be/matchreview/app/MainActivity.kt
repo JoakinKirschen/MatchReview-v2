@@ -1,5 +1,8 @@
 package be.matchreview.app
 
+import be.matchreview.app.ui.AppButton
+import be.matchreview.app.ui.AppOutlinedButton
+import be.matchreview.app.ui.AppTonalButton
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -142,15 +145,6 @@ fun MatchReviewApp(
     initialRoute: String? = null
 ) {
     val nav = rememberNavController()
-    LaunchedEffect(initialRoute) {
-        initialRoute?.let { nav.navigate(it) }
-    }
-    LaunchedEffect(openLiveMatchId) {
-        openLiveMatchId?.let { matchId ->
-            nav.navigate("live/$matchId") { launchSingleTop = true }
-            onLiveMatchOpened()
-        }
-    }
     val backStackEntry by nav.currentBackStackEntryAsState()
     val route = backStackEntry?.destination?.route.orEmpty()
     val immersiveMatchDay = route.startsWith("live/")
@@ -245,9 +239,20 @@ fun MatchReviewApp(
                 ReviewScreen(entry.arguments?.getString("id")!!.toLong(), vm, nav)
             }
         }
+        // Only after NavHost has set up its graph; navigating earlier throws.
+        LaunchedEffect(initialRoute) {
+            initialRoute?.let { nav.navigate(it) }
+        }
+        LaunchedEffect(openLiveMatchId) {
+            openLiveMatchId?.let { matchId ->
+                nav.navigate("live/$matchId") { launchSingleTop = true }
+                onLiveMatchOpened()
+            }
+        }
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun DashboardScreen(vm: MainViewModel, nav: NavHostController) {
     val teams by vm.teams.collectAsStateWithLifecycle()
@@ -262,29 +267,20 @@ private fun DashboardScreen(vm: MainViewModel, nav: NavHostController) {
     }
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(20.dp),
+        contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         item {
             val themeMode by vm.themeMode.collectAsStateWithLifecycle()
-            Row(
-                Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                ThemeMode.entries.forEach { mode ->
-                    FilterChip(
+            SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+                ThemeMode.entries.forEachIndexed { index, mode ->
+                    SegmentedButton(
                         selected = themeMode == mode,
                         onClick = { vm.setThemeMode(mode) },
-                        label = {
-                            Text(
-                                mode.label,
-                                maxLines = 1,
-                                modifier = Modifier.fillMaxWidth(),
-                                textAlign = androidx.compose.ui.text.style.TextAlign.Center
-                            )
-                        },
-                        modifier = Modifier.weight(1f).heightIn(min = 48.dp)
-                    )
+                        shape = SegmentedButtonDefaults.itemShape(index, ThemeMode.entries.size),
+                        icon = {},
+                        modifier = Modifier.heightIn(min = 48.dp)
+                    ) { Text(mode.label, maxLines = 1) }
                 }
             }
         }
@@ -367,7 +363,7 @@ private fun DashboardScreen(vm: MainViewModel, nav: NavHostController) {
                     Column(Modifier.padding(16.dp)) {
                         Text("Resume live match", style = MaterialTheme.typography.titleLarge, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
                         Text("vs ${live.opponent} • ${live.status.name.lowercase().replaceFirstChar { it.uppercase() }}")
-                        Button(
+                        AppButton(
                             onClick = { nav.navigate("live/${live.id}") },
                             modifier = Modifier.fillMaxWidth().padding(top = 8.dp)
                         ) { Text("Open match day") }
@@ -376,10 +372,10 @@ private fun DashboardScreen(vm: MainViewModel, nav: NavHostController) {
             }
         }
         item {
-            Button(onClick = { nav.navigate("match/new") }, modifier = Modifier.fillMaxWidth()) {
+            AppButton(onClick = { nav.navigate("match/new") }, modifier = Modifier.fillMaxWidth()) {
                 Text("Create a match")
             }
-            OutlinedButton(
+            AppOutlinedButton(
                 onClick = {
                     vm.createPracticeMatch { matchId -> nav.navigate("squad/$matchId") }
                 },
@@ -388,10 +384,10 @@ private fun DashboardScreen(vm: MainViewModel, nav: NavHostController) {
             ) {
                 Text("Start a practice match")
             }
-            OutlinedButton(onClick = { nav.navigate("team/new") }, modifier = Modifier.fillMaxWidth()) {
+            AppOutlinedButton(onClick = { nav.navigate("team/new") }, modifier = Modifier.fillMaxWidth()) {
                 Text("Create a team")
             }
-            OutlinedButton(onClick = { nav.navigate("backup") }, modifier = Modifier.fillMaxWidth()) {
+            AppOutlinedButton(onClick = { nav.navigate("backup") }, modifier = Modifier.fillMaxWidth()) {
                 Text("Backup & restore")
             }
         }
@@ -468,7 +464,7 @@ private fun BackupRestoreScreen(vm: MainViewModel) {
         Modifier
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
-            .padding(20.dp),
+            .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         Text(
@@ -566,7 +562,7 @@ private fun BackupRestoreScreen(vm: MainViewModel) {
                     },
                     style = MaterialTheme.typography.bodySmall
                 )
-                Button(
+                AppButton(
                     onClick = {
                         exportLauncher.launch(
                             "MatchReview-${SimpleDateFormat("yyyy-MM-dd-HHmm", Locale.US).format(Date())}.mrbak"
@@ -597,7 +593,7 @@ private fun BackupRestoreScreen(vm: MainViewModel) {
                             "encrypted backup is saved there with the password above. The newest " +
                             "${AutoBackupRules.KEEP} automatic backups are kept."
                     )
-                    Button(
+                    AppButton(
                         onClick = { autoBackupFolderLauncher.launch(null) },
                         enabled = passwordValid && !working,
                         modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
@@ -628,12 +624,12 @@ private fun BackupRestoreScreen(vm: MainViewModel) {
                         Text("Include video files", Modifier.weight(1f))
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        FilledTonalButton(
+                        AppTonalButton(
                             onClick = vm::runAutoBackupNow,
                             enabled = !autoBackup.running,
                             modifier = Modifier.weight(1f).heightIn(min = 48.dp)
                         ) { Text("Back up now") }
-                        OutlinedButton(
+                        AppOutlinedButton(
                             onClick = vm::disableAutoBackup,
                             enabled = !autoBackup.running,
                             modifier = Modifier.heightIn(min = 48.dp)
@@ -672,7 +668,7 @@ private fun BackupRestoreScreen(vm: MainViewModel) {
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
-                Button(
+                AppButton(
                     onClick = { restoreLauncher.launch(arrayOf("application/octet-stream", "*/*")) },
                     enabled = restorePassword.length >= 6 && !working,
                     colors = ButtonDefaults.buttonColors(
@@ -789,7 +785,7 @@ private fun BackupRestoreScreen(vm: MainViewModel) {
                 }
             },
             confirmButton = {
-                Button(
+                AppButton(
                     onClick = {
                         val uri = selectedRestoreUri
                         selectedRestoreUri = null
@@ -827,11 +823,11 @@ private fun TeamsScreen(vm: MainViewModel, nav: NavHostController) {
     val teams by vm.teams.collectAsStateWithLifecycle()
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(20.dp),
+        contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
         item {
-            Button(onClick = { nav.navigate("team/new") }, modifier = Modifier.fillMaxWidth()) {
+            AppButton(onClick = { nav.navigate("team/new") }, modifier = Modifier.fillMaxWidth()) {
                 Text("Add team")
             }
         }
@@ -861,7 +857,7 @@ private fun NewTeamScreen(vm: MainViewModel, nav: NavHostController) {
         Field(club, { club = it }, "Club")
         Field(age, { age = it }, "Age group")
         Field(season, { season = it }, "Season")
-        Button(
+        AppButton(
             onClick = { vm.addTeam(name, club, age, season) { nav.popBackStack() } },
             enabled = name.isNotBlank(),
             modifier = Modifier.fillMaxWidth()
@@ -938,7 +934,7 @@ private fun TeamScreen(teamId: Long, vm: MainViewModel, nav: NavHostController) 
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(20.dp),
+        contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
         item {
@@ -1013,11 +1009,11 @@ private fun TeamScreen(teamId: Long, vm: MainViewModel, nav: NavHostController) 
                 Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Button(
+                AppButton(
                     onClick = { showAdd = true },
                     modifier = Modifier.weight(1f)
                 ) { Text("Add player") }
-                OutlinedButton(
+                AppOutlinedButton(
                     onClick = { showDeleteTeam = true },
                     enabled = team != null,
                     colors = ButtonDefaults.outlinedButtonColors(
@@ -1040,19 +1036,19 @@ private fun TeamScreen(teamId: Long, vm: MainViewModel, nav: NavHostController) 
                             )
                         }
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            FilledTonalButton(
+                            AppTonalButton(
                                 onClick = {
                                     seasonReport?.let { reportPdfLauncher.launch(SeasonReportRules.fileName(it.teamName, "pdf")) }
                                 },
                                 enabled = seasonReport != null,
                                 modifier = Modifier.weight(1f).heightIn(min = 48.dp)
                             ) { Text("Download PDF") }
-                            OutlinedButton(
+                            AppOutlinedButton(
                                 onClick = { shareSeasonReport(pdf = true) },
                                 enabled = seasonReport != null,
                                 modifier = Modifier.heightIn(min = 48.dp)
                             ) { Text("Share") }
-                            OutlinedButton(
+                            AppOutlinedButton(
                                 onClick = { shareSeasonReport(pdf = false) },
                                 enabled = seasonReport != null,
                                 modifier = Modifier.heightIn(min = 48.dp)
@@ -1446,11 +1442,11 @@ private fun MatchesScreen(vm: MainViewModel, nav: NavHostController) {
     }
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(20.dp),
+        contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
         item {
-            Button(onClick = { nav.navigate("match/new") }, modifier = Modifier.fillMaxWidth()) {
+            AppButton(onClick = { nav.navigate("match/new") }, modifier = Modifier.fillMaxWidth()) {
                 Text("New match")
             }
         }
@@ -1580,7 +1576,7 @@ private fun NewMatchScreen(vm: MainViewModel, nav: NavHostController) {
     FormColumn("New match") {
         if (teams.isEmpty()) {
             EmptyCard("Create a team before adding a match.")
-            Button(onClick = { nav.navigate("team/new") }) { Text("Create team") }
+            AppButton(onClick = { nav.navigate("team/new") }) { Text("Create team") }
         } else {
             Row(
                 Modifier.fillMaxWidth(),
@@ -1588,7 +1584,7 @@ private fun NewMatchScreen(vm: MainViewModel, nav: NavHostController) {
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Box(Modifier.weight(1f)) {
-                    OutlinedButton(
+                    AppOutlinedButton(
                         onClick = { teamMenu = true },
                         modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
                     ) {
@@ -1610,7 +1606,7 @@ private fun NewMatchScreen(vm: MainViewModel, nav: NavHostController) {
                 HomeAwaySelector(home, { home = it })
             }
             Field(opponent, { opponent = it }, "Opponent")
-            OutlinedButton(
+            AppOutlinedButton(
                 onClick = { showDatePicker = true },
                 modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
             ) {
@@ -1641,7 +1637,7 @@ private fun NewMatchScreen(vm: MainViewModel, nav: NavHostController) {
             }
             Text("Formation", style = MaterialTheme.typography.titleMedium)
             Box {
-                OutlinedButton(
+                AppOutlinedButton(
                     onClick = { formationMenu = true },
                     modifier = Modifier.fillMaxWidth()
                 ) {
@@ -1696,7 +1692,7 @@ private fun NewMatchScreen(vm: MainViewModel, nav: NavHostController) {
                     )
                 }
             }
-            Button(
+            AppButton(
                 enabled = teamId != 0L &&
                     opponent.isNotBlank() &&
                     date.isNotBlank() &&
@@ -1898,7 +1894,7 @@ private fun ReviewScreen(matchId: Long, vm: MainViewModel, nav: NavHostControlle
             }
         }
         if (current.status in setOf(MatchStatus.LINEUP_READY, MatchStatus.LIVE, MatchStatus.PAUSED, MatchStatus.PERIOD_ENDED)) {
-            Button(
+            AppButton(
                 onClick = {
                     nav.navigate(
                         if (current.status == MatchStatus.LINEUP_READY) "ready/$matchId"
@@ -1912,14 +1908,14 @@ private fun ReviewScreen(matchId: Long, vm: MainViewModel, nav: NavHostControlle
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             val setupEditable = current.status in setOf(MatchStatus.DRAFT, MatchStatus.LINEUP_READY)
-            FilledTonalButton(
+            AppTonalButton(
                 onClick = { nav.navigate("squad/$matchId") },
                 enabled = setupEditable,
                 modifier = Modifier.weight(1f)
             ) {
                 Text("Edit squad")
             }
-            FilledTonalButton(
+            AppTonalButton(
                 onClick = { nav.navigate("lineup/$matchId") },
                 enabled = setupEditable,
                 modifier = Modifier.weight(1f)
@@ -1953,18 +1949,18 @@ private fun ReviewScreen(matchId: Long, vm: MainViewModel, nav: NavHostControlle
         } else {
             Card(Modifier.fillMaxWidth().height(180.dp)) {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Button(onClick = { videoPicker.launch(arrayOf("video/*")) }) { Text("Import match video") }
+                    AppButton(onClick = { videoPicker.launch(arrayOf("video/*")) }) { Text("Import match video") }
                 }
             }
         }
 
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(
+            AppButton(
                 onClick = { tagPosition = player?.currentPosition ?: 0L; showTag = true },
                 enabled = player != null,
                 modifier = Modifier.weight(1f)
             ) { Text("Tag moment") }
-            OutlinedButton(onClick = { videoPicker.launch(arrayOf("video/*")) }, modifier = Modifier.weight(1f)) {
+            AppOutlinedButton(onClick = { videoPicker.launch(arrayOf("video/*")) }, modifier = Modifier.weight(1f)) {
                 Text("Change video")
             }
         }
@@ -2131,11 +2127,11 @@ private fun ReviewScreen(matchId: Long, vm: MainViewModel, nav: NavHostControlle
             GoalMap(events, current.opponent, Modifier.fillMaxWidth())
             ReviewEditor(current, vm)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                FilledTonalButton(
+                AppTonalButton(
                     onClick = { pdfExportLauncher.launch(MatchPdfExporter.fileName(current)) },
                     modifier = Modifier.weight(1f).heightIn(min = 48.dp)
                 ) { Text("Download PDF summary") }
-                OutlinedButton(
+                AppOutlinedButton(
                     onClick = {
                         exportMessage = runCatching {
                             ExternalApps.shareNewFile(
@@ -2178,7 +2174,7 @@ private fun ReviewScreen(matchId: Long, vm: MainViewModel, nav: NavHostControlle
             }
             Switch(checked = redactedExport, onCheckedChange = { redactedExport = it })
         }
-        Button(
+        AppButton(
             onClick = {
                 exportContent = MatchExportFormatter.toCsv(
                     current,
@@ -2196,13 +2192,13 @@ private fun ReviewScreen(matchId: Long, vm: MainViewModel, nav: NavHostControlle
             },
             modifier = Modifier.fillMaxWidth()
         ) { Text("Export match data (CSV)") }
-        OutlinedButton(
+        AppOutlinedButton(
             onClick = { nav.navigate("backup") },
             modifier = Modifier.fillMaxWidth()
         ) { Text("Back up all app data") }
         exportMessage?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
 
-        OutlinedButton(
+        AppOutlinedButton(
             onClick = { showDeleteMatch = true },
             enabled = !deleteBlocked,
             colors = ButtonDefaults.outlinedButtonColors(
@@ -2382,12 +2378,12 @@ private fun HighlightsCard(match: GameMatch, events: List<MatchEvent>, recording
                 style = MaterialTheme.typography.bodySmall
             )
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                FilledTonalButton(
+                AppTonalButton(
                     onClick = { make(ourClips, "our-goals") },
                     enabled = progress == null && ourClips.isNotEmpty(),
                     modifier = Modifier.weight(1f).heightIn(min = 48.dp)
                 ) { Text("Our goals (${ourClips.sumOf { it.eventIds.size }})") }
-                OutlinedButton(
+                AppOutlinedButton(
                     onClick = { make(allClips, "goals") },
                     enabled = progress == null,
                     modifier = Modifier.weight(1f).heightIn(min = 48.dp)
@@ -2397,13 +2393,13 @@ private fun HighlightsCard(match: GameMatch, events: List<MatchEvent>, recording
             message?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
             reel?.let { saved ->
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(
+                    AppButton(
                         onClick = {
                             if (!ExternalApps.open(context, saved.uri, "video/mp4")) message = "Install a video player to watch it."
                         },
                         modifier = Modifier.weight(1f).heightIn(min = 48.dp)
                     ) { Text("Play") }
-                    OutlinedButton(
+                    AppOutlinedButton(
                         onClick = { ExternalApps.share(context, saved.uri, "video/mp4", "Goals vs ${match.opponent}") },
                         modifier = Modifier.weight(1f).heightIn(min = 48.dp)
                     ) { Text("Share") }
@@ -2450,7 +2446,7 @@ private fun EventDialog(
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Box {
-                    OutlinedButton(onClick = { typeMenu = true }, modifier = Modifier.fillMaxWidth()) { Text(type) }
+                    AppOutlinedButton(onClick = { typeMenu = true }, modifier = Modifier.fillMaxWidth()) { Text(type) }
                     DropdownMenu(typeMenu, { typeMenu = false }) {
                         types.forEach { item ->
                             DropdownMenuItem(text = { Text(item) }, onClick = { type = item; typeMenu = false })
@@ -2458,7 +2454,7 @@ private fun EventDialog(
                     }
                 }
                 Box {
-                    OutlinedButton(onClick = { playerMenu = true }, modifier = Modifier.fillMaxWidth()) {
+                    AppOutlinedButton(onClick = { playerMenu = true }, modifier = Modifier.fillMaxWidth()) {
                         Text(players.firstOrNull { it.id == playerId }?.name ?: "No player")
                     }
                     DropdownMenu(playerMenu, { playerMenu = false }) {
@@ -2519,7 +2515,7 @@ private fun ReviewEditor(match: GameMatch, vm: MainViewModel) {
         minLines = 4,
         modifier = Modifier.fillMaxWidth()
     )
-    Button(
+    AppButton(
         onClick = {
             val ours = ourScore.toIntOrNull() ?: match.ourScore
             val theirs = theirScore.toIntOrNull() ?: match.opponentScore
@@ -2541,7 +2537,7 @@ private fun ReviewEditor(match: GameMatch, vm: MainViewModel) {
 @Composable
 private fun FormColumn(title: String, content: @Composable ColumnScope.() -> Unit) {
     Column(
-        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp),
+        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         Text(title, style = MaterialTheme.typography.headlineMedium)

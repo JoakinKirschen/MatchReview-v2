@@ -1,5 +1,7 @@
 package be.matchreview.app
 
+import be.matchreview.app.ui.AppButton
+import be.matchreview.app.ui.AppOutlinedButton
 import android.net.Uri
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
@@ -73,12 +75,12 @@ fun VideoEventPlaybackSheet(
                 style = MaterialTheme.typography.bodySmall
             )
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(
+                AppOutlinedButton(
                     onClick = { selectedId = playableEvents[selectedIndex - 1].id },
                     enabled = selectedIndex > 0,
                     modifier = Modifier.weight(1f)
                 ) { Text("Previous event") }
-                Button(
+                AppButton(
                     onClick = { selectedId = playableEvents[selectedIndex + 1].id },
                     enabled = selectedIndex >= 0 && selectedIndex < playableEvents.lastIndex,
                     modifier = Modifier.weight(1f)

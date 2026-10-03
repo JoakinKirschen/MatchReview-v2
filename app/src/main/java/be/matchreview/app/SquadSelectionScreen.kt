@@ -1,5 +1,8 @@
 package be.matchreview.app
 
+import be.matchreview.app.ui.AppButton
+import be.matchreview.app.ui.AppOutlinedButton
+import be.matchreview.app.ui.AppTonalButton
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -116,11 +119,11 @@ fun SquadSelectionScreen(
                 }
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                FilledTonalButton(
+                AppTonalButton(
                     onClick = { vm.markAndSelectAllAvailable(matchId) },
                     modifier = Modifier.weight(1f)
                 ) { Text("Select all") }
-                OutlinedButton(
+                AppOutlinedButton(
                     onClick = { vm.clearSquadSelection(matchId) },
                     modifier = Modifier.weight(1f)
                 ) { Text("Clear selection") }
@@ -187,7 +190,7 @@ fun SquadSelectionScreen(
                     else MaterialTheme.colorScheme.primary,
                     style = MaterialTheme.typography.bodySmall
                 )
-                Button(
+                AppButton(
                     enabled = summary.canContinue,
                     onClick = { nav.navigate("lineup/$matchId") },
                     modifier = Modifier.fillMaxWidth()

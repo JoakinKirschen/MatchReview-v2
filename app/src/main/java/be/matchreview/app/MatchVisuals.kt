@@ -1,5 +1,6 @@
 package be.matchreview.app
 
+import be.matchreview.app.ui.AppOutlinedButton
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -60,7 +61,7 @@ fun LineupSnapshotPitch(
         modifier
             .height(height)
             .aspectRatio(0.72f)
-            .clip(RoundedCornerShape(12.dp))
+            .clip(RoundedCornerShape(16.dp))
             .background(SnapshotPitchGreen)
             .semantics {
                 contentDescription = "Lineup after the change: " +
@@ -346,7 +347,7 @@ fun MatchDetailsDialog(
                     isError = opponent.isBlank(),
                     modifier = Modifier.fillMaxWidth()
                 )
-                OutlinedButton(
+                AppOutlinedButton(
                     onClick = { showDatePicker = true },
                     modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
                 ) {
