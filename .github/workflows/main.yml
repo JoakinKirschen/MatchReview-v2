@@ -312,6 +312,7 @@ jobs:
           git status --porcelain --untracked-files=all -- app/schemas | awk '{print $2}' | while read -r file; do
             echo "===== BEGIN $file ====="
             cat "$file"
+            echo
             echo "===== END $file ====="
           done
           exit 1
