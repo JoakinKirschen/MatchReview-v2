@@ -1,7 +1,7 @@
 # MatchReview Pass Changelog
 
 This is the **single source of truth** for implementation-pass notes and change tracking.
-It consolidates implementation notes for Passes 1–63.
+It consolidates implementation notes for Passes 1–64.
 
 ## How to maintain this file
 
@@ -37,7 +37,7 @@ For every future development pass:
 
 | Pass | Status | Planned change | Version impact |
 |---:|---|---|---|
-| 64 | Not scheduled | Add the next approved recommendation here | To be determined |
+| 65 | Not scheduled | Add the next approved recommendation here | To be determined |
 
 ## Documentation changes
 
@@ -131,6 +131,7 @@ For every future development pass:
 | 61 | [Automatic backups](#pass-61-automatic-backups) |
 | 62 | [Match clock in the notification bar](#pass-62-match-clock-in-the-notification-bar) |
 | 63 | [Goal highlights video](#pass-63-goal-highlights-video) |
+| 64 | [Consistent, cleaner look](#pass-64-consistent-cleaner-look) |
 
 ---
 
@@ -1455,3 +1456,21 @@ begin.
 
 ### Deferred or known limitations
 - Cuts start at the key frame before each window, so a clip can begin a second or two early. Clips recorded with other camera settings than the first goal are left out and reported.
+
+## Pass 64 — Consistent, cleaner look
+
+**Status:** Completed  
+**Completed:** 2026-10-03  
+**Version impact:** None
+
+### Added or changed
+- One button family (`AppButton`, `AppTonalButton`, `AppOutlinedButton`): 48 dp high with 12 dp corners everywhere; match-day actions are 56 dp. Text fields and chips share the 12 dp corners through the theme shapes; cards (`AppCard`) are white with 16 dp corners on a light grey background.
+- Complete light, dark and outdoor colour schemes, so no Material default purple appears in cards, chips, the bottom bar or selections. Theme, match size and review sections use segmented controls.
+- Pitch screens: all pitches share the same grass, lines and badges; markers stay fully on the grass; short benches are centred; the lineup screen lost its nested scaffold and repeated header. Timeline lineup pictures are landscape and fill the card width instead of a narrow portrait pitch with empty sides.
+- Camera tab: status and match clock on the preview, camera-app controls (sound, switch camera, record, torch) with icons, one line for clips and free space. The clip list, long texts and the goal buttons that repeated the action row are gone.
+- Less repetition: screen titles are only in the top bar; hint and filler texts were removed; dashboard and match cards are more compact (score and status badge on the right).
+- Fixed: tapping the match clock notification when the app was not running navigated before the screens existed and threw an exception.
+- Tooling: `ScreenshotTest` renders the main screens with Robolectric; the CI workflow prints them when started with the `screenshots` input.
+
+### Tests and verification
+- Checked screen by screen with the CI screenshots; all unit tests pass.
