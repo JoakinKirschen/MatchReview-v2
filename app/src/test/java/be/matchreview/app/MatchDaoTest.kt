@@ -13,10 +13,13 @@ import be.matchreview.app.data.MatchRepository
 import be.matchreview.app.data.MatchSquadPlayer
 import be.matchreview.app.data.MatchStatus
 import be.matchreview.app.data.Player
+import be.matchreview.app.data.ParticipationReason
 import be.matchreview.app.data.PlayerMatchState
 import be.matchreview.app.data.RecordingStatus
 import be.matchreview.app.data.Team
 import be.matchreview.app.domain.LineupSnapshot
+import be.matchreview.app.domain.MatchActions
+import be.matchreview.app.domain.MatchStatsRules
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.After
@@ -335,6 +338,76 @@ class MatchDaoTest {
         assertEquals(0L, kickOff.timestampMs)
         val starters = LineupSnapshot.decode(kickOff.lineupSnapshot).map { it.playerId }
         assertEquals(fixture.playerIds.take(2).sorted(), starters.sorted())
+    }
+
+    @Test
+    fun undoingASubstitutionRoundRestoresLineupAndMinutes() = runBlocking {
+        val fixture = liveMatch()
+        val (starterA, starterB, benchC, _) = fixture.playerIds
+        val before = dao.getLineupOnce(fixture.matchId).associateBy { it.playerId }
+        val plan = before.values.map {
+            when (it.playerId) {
+                starterA -> it.copy(onPitch = false)
+                benchC -> it.copy(onPitch = true, normalizedX = before.getValue(starterA).normalizedX,
+                    normalizedY = before.getValue(starterA).normalizedY)
+                else -> it
+            }
+        }
+        assertTrue(dao.applySubstitutionRound(fixture.matchId, plan, KICK_OFF_MONOTONIC + 120_000, KICK_OFF_WALL + 120_000))
+
+        assertTrue(dao.undoLatestLineupChange(fixture.matchId))
+
+        val lineup = dao.getLineupOnce(fixture.matchId).associateBy { it.playerId }
+        assertTrue(lineup.getValue(starterA).onPitch)
+        assertTrue(lineup.getValue(starterB).onPitch)
+        assertFalse(lineup.getValue(benchC).onPitch)
+        assertEquals(PlayerMatchState.ON_PITCH, dao.getMatchSquadPlayer(fixture.matchId, starterA)!!.state)
+        assertEquals(PlayerMatchState.BENCH, dao.getMatchSquadPlayer(fixture.matchId, benchC)!!.state)
+        val participations = dao.observeParticipations(fixture.matchId).first()
+        // Starter A keeps playing as if the round never happened; C never came on.
+        assertNull(participations.single { it.playerId == starterA }.endMatchTimeMs)
+        assertTrue(participations.none { it.playerId == benchC })
+        assertEquals(listOf("KICK_OFF"), dao.observeEvents(fixture.matchId).first().map { it.type })
+        // The starting lineup itself cannot be undone.
+        assertFalse(dao.undoLatestLineupChange(fixture.matchId))
+    }
+
+    @Test
+    fun aRedCardCanBeUndone() = runBlocking {
+        val fixture = liveMatch()
+        val sentOff = fixture.playerIds[0]
+        dao.removePlayerFromPitch(fixture.matchId, sentOff, ParticipationReason.DISMISSAL, KICK_OFF_MONOTONIC + 60_000, KICK_OFF_WALL + 60_000)
+        assertEquals(PlayerMatchState.DISMISSED, dao.getMatchSquadPlayer(fixture.matchId, sentOff)!!.state)
+
+        assertTrue(dao.undoLatestLineupChange(fixture.matchId))
+
+        assertEquals(PlayerMatchState.ON_PITCH, dao.getMatchSquadPlayer(fixture.matchId, sentOff)!!.state)
+        assertTrue(dao.getLineupPlacementOnce(fixture.matchId, sentOff)!!.onPitch)
+        assertNull(dao.observeParticipations(fixture.matchId).first().single { it.playerId == sentOff }.endMatchTimeMs)
+    }
+
+    @Test
+    fun shotsCornersAndCardsAreCountedForBothTeams() = runBlocking {
+        val fixture = liveMatch()
+        val time = { seconds: Long -> KICK_OFF_MONOTONIC + seconds * 1_000 }
+        dao.recordMatchAction(fixture.matchId, MatchActions.OUR_SHOT_OFF_TARGET, fixture.playerIds[0], time(10), KICK_OFF_WALL)
+        dao.recordMatchAction(fixture.matchId, MatchActions.OUR_CORNER, null, time(20), KICK_OFF_WALL)
+        dao.recordMatchAction(fixture.matchId, MatchActions.YELLOW_CARD, fixture.playerIds[1], time(30), KICK_OFF_WALL)
+        dao.recordMatchAction(fixture.matchId, MatchActions.OPPONENT_CORNER, null, time(40), KICK_OFF_WALL)
+        dao.recordKeeperSave(fixture.matchId, null, time(50), KICK_OFF_WALL)
+        dao.recordOurGoal(fixture.matchId, fixture.playerIds[0], null, time(60), KICK_OFF_WALL)
+
+        val stats = MatchStatsRules.compute(dao.observeEvents(fixture.matchId).first())
+
+        assertEquals(2, stats.ours.shots) // the goal counts as a shot on target
+        assertEquals(1, stats.ours.corners)
+        assertEquals(1, stats.ours.yellowCards)
+        assertEquals(1, stats.opponent.corners)
+        assertEquals(1, stats.opponent.shotsOnTarget) // the save
+        assertTrue(stats.hasDetail)
+        // Actions never change the score.
+        assertEquals(1, dao.getMatchOnce(fixture.matchId)!!.ourScore)
+        assertEquals(0, dao.getMatchOnce(fixture.matchId)!!.opponentScore)
     }
 
     private companion object {

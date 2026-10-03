@@ -274,6 +274,8 @@ class MatchRepository(private val dao: MatchDao) {
         wallClockNowMs: Long
     ) = dao.applySubstitutionRound(matchId, planned, monotonicNowMs, wallClockNowMs)
 
+    suspend fun undoLatestLineupChange(matchId: Long) = dao.undoLatestLineupChange(matchId)
+
     suspend fun removePlayerFromPitch(
         matchId: Long,
         playerId: Long,
@@ -300,6 +302,14 @@ class MatchRepository(private val dao: MatchDao) {
         monotonicNowMs: Long,
         wallClockNowMs: Long
     ) = dao.recordOpponentGoal(matchId, monotonicNowMs, wallClockNowMs)
+
+    suspend fun recordMatchAction(
+        matchId: Long,
+        type: String,
+        playerId: Long?,
+        monotonicNowMs: Long,
+        wallClockNowMs: Long
+    ) = dao.recordMatchAction(matchId, type, playerId, monotonicNowMs, wallClockNowMs)
 
     suspend fun recordKeeperSave(
         matchId: Long,

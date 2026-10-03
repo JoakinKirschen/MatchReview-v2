@@ -400,6 +400,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         done(repository.applySubstitutionRound(matchId, planned, now, System.currentTimeMillis()))
     }
 
+    fun undoLatestLineupChange(matchId: Long, done: (Boolean) -> Unit = {}) = viewModelScope.launch {
+        val now = SystemClock.elapsedRealtime()
+        if (!liveCommandGate.accept("$matchId:undo-lineup", now)) return@launch
+        // The draft of an open round was based on the lineup that is being undone.
+        clearSubstitutionDraft(matchId)
+        done(repository.undoLatestLineupChange(matchId))
+    }
+
     fun removePlayerFromPitch(
         matchId: Long,
         playerId: Long,
@@ -439,6 +447,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (!liveCommandGate.accept("$matchId:opponent-goal", now)) return@launch
         done(repository.recordOpponentGoal(matchId, now, System.currentTimeMillis()))
     }
+
+    fun recordMatchAction(matchId: Long, type: String, playerId: Long?, done: (Long?) -> Unit = {}) =
+        viewModelScope.launch {
+            val now = SystemClock.elapsedRealtime()
+            if (!liveCommandGate.accept("$matchId:$type:${playerId ?: 0}", now)) return@launch
+            done(repository.recordMatchAction(matchId, type, playerId, now, System.currentTimeMillis()))
+        }
 
     fun recordKeeperSave(matchId: Long, keeperPlayerId: Long?, done: (Long?) -> Unit = {}) =
         viewModelScope.launch {

@@ -42,7 +42,9 @@ import androidx.navigation.compose.*
 import be.matchreview.app.data.*
 import be.matchreview.app.ui.MatchReviewTheme
 import be.matchreview.app.ui.ThemeMode
+import be.matchreview.app.domain.MatchActions
 import be.matchreview.app.domain.MatchExportFormatter
+import be.matchreview.app.domain.MatchStatsRules
 import be.matchreview.app.domain.ExportPrivacyOptions
 import be.matchreview.app.domain.MediaIntegrityRules
 import be.matchreview.app.domain.MatchIntegrityRules
@@ -59,6 +61,8 @@ import be.matchreview.app.domain.TimelineGrouping
 import be.matchreview.app.domain.TimelineItem
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -1889,6 +1893,28 @@ private fun ReviewScreen(matchId: Long, vm: MainViewModel, nav: NavHostControlle
                     }
                 }
             }
+            val matchStats = MatchStatsRules.compute(events)
+            if (matchStats.hasDetail) {
+                Card(Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text("Match stats", style = MaterialTheme.typography.titleMedium)
+                        Row(Modifier.fillMaxWidth()) {
+                            Spacer(Modifier.weight(1.4f))
+                            Text(team?.name ?: "Our team", Modifier.weight(1f), fontWeight = FontWeight.Bold,
+                                textAlign = TextAlign.End, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(current.opponent, Modifier.weight(1f), fontWeight = FontWeight.Bold,
+                                textAlign = TextAlign.End, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
+                        MatchStatsRules.rows(matchStats).forEach { (label, ours, theirs) ->
+                            Row(Modifier.fillMaxWidth()) {
+                                Text(label, Modifier.weight(1.4f))
+                                Text("$ours", Modifier.weight(1f), textAlign = TextAlign.End)
+                                Text("$theirs", Modifier.weight(1f), textAlign = TextAlign.End)
+                            }
+                        }
+                    }
+                }
+            }
             val saves = events.filter { it.type == "KEEPER_SAVE" }
             Card(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -2105,7 +2131,9 @@ private fun ReviewScreen(matchId: Long, vm: MainViewModel, nav: NavHostControlle
     }
 }
 
-private fun reviewEventLabel(type: String): String = when (type) {
+private fun reviewEventLabel(type: String): String = MatchActions.label(type)
+    ?.let { if (MatchActions.isOpponent(type)) "Opponent ${it.lowercase()}" else it }
+    ?: when (type) {
     "OUR_GOAL" -> "Our goal"
     "OPPONENT_GOAL" -> "Opponent goal"
     "SUBSTITUTION" -> "Substitution"
@@ -2115,8 +2143,7 @@ private fun reviewEventLabel(type: String): String = when (type) {
     "PLAYER_ON" -> "Player on"
     "PLAYER_OFF" -> "Player off"
     "INJURY_OFF" -> "Injury"
-    "YELLOW_CARD" -> "Yellow card"
-    "RED_CARD" -> "Red card"
+    "DISMISSAL" -> "Red card (sent off)"
     else -> type.lowercase().replace('_', ' ').replaceFirstChar { it.uppercase() }
 }
 

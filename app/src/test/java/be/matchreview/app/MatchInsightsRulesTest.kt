@@ -7,6 +7,9 @@ import be.matchreview.app.data.Player
 import be.matchreview.app.data.PlayerParticipation
 import be.matchreview.app.domain.BackupReminderRules
 import be.matchreview.app.domain.GoalSummaryRules
+import be.matchreview.app.domain.LineupUndoRules
+import be.matchreview.app.domain.MatchStatsRules
+import be.matchreview.app.data.MatchLineupPlacement
 import be.matchreview.app.domain.PeriodTimeRules
 import be.matchreview.app.domain.PlayerSeasonStatsRules
 import be.matchreview.app.domain.PlayingTimeRules
@@ -109,5 +112,47 @@ class MatchInsightsRulesTest {
         assertEquals(StatLine(4, 90, 2, 0, 0), PlayerSeasonStatsRules.withCorrections(laterTracked, corrected))
         // Totals never go below zero.
         assertEquals(0, PlayerSeasonStatsRules.withCorrections(tracked, sam.copy(statGoalsAdjustment = -5)).goals)
+    }
+
+    @Test
+    fun matchStatsCountGoalsAsShotsAndSavesAsOpponentShots() {
+        val events = listOf(
+            MatchEvent(matchId = 1, timestampMs = 1, type = "OUR_GOAL"),
+            MatchEvent(matchId = 1, timestampMs = 2, type = "OUR_SHOT_OFF_TARGET"),
+            MatchEvent(matchId = 1, timestampMs = 3, type = "KEEPER_SAVE"),
+            MatchEvent(matchId = 1, timestampMs = 4, type = "DISMISSAL", playerId = 1),
+            MatchEvent(matchId = 1, timestampMs = 5, type = "OPPONENT_YELLOW_CARD")
+        )
+
+        val stats = MatchStatsRules.compute(events)
+
+        assertEquals(2, stats.ours.shots)
+        assertEquals(1, stats.ours.shotsOnTarget)
+        assertEquals(1, stats.ours.redCards)
+        assertEquals(1, stats.opponent.shotsOnTarget)
+        assertEquals(1, stats.opponent.yellowCards)
+        assertEquals(listOf("Goals", "Shots", "On target", "Corners", "Yellow cards", "Red cards"),
+            MatchStatsRules.rows(stats).map { it.first })
+        // Only goals: no stats table needed.
+        assertFalse(MatchStatsRules.compute(events.take(1)).hasDetail)
+    }
+
+    @Test
+    fun undoingASubstitutionWithoutAnEarlierPictureSwapsThePlayersBack() {
+        // C replaced A at A's spot; B stayed. No kick-off picture exists (older match).
+        val round = MatchEvent(
+            id = 7, matchId = 1, playerId = 1, relatedPlayerId = 3, timestampMs = 60_000,
+            type = "SUBSTITUTION", periodNumber = 1, lineupSnapshot = "2:0.500:0.200;3:0.500:0.800"
+        )
+        val placements = listOf(MatchLineupPlacement(1, 1, normalizedX = 0.1f, normalizedY = 0.1f, onPitch = false))
+
+        val plan = LineupUndoRules.plan(listOf(round), placements)!!
+
+        assertEquals(listOf(round), plan.roundEvents)
+        assertEquals(60_000L, plan.roundTimeMs)
+        assertEquals(listOf(1L, 2L), plan.before.map { it.playerId })
+        assertEquals(0.8f, plan.before.first().normalizedY, 0.001f)
+        // A goal is not a lineup change, so there is nothing to undo.
+        assertNull(LineupUndoRules.plan(listOf(MatchEvent(matchId = 1, timestampMs = 1, type = "OUR_GOAL")), emptyList()))
     }
 }
