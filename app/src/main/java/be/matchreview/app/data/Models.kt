@@ -20,7 +20,9 @@ data class Team(
     val name: String,
     val club: String = "",
     val ageGroup: String = "",
-    val season: String = ""
+    val season: String = "",
+    /** Downscaled PNG logo, Base64 encoded so it travels inside encrypted backups. */
+    @ColumnInfo(defaultValue = "NULL") val logoPng: String? = null
 )
 
 @Entity(
@@ -109,7 +111,13 @@ data class MatchEvent(
     val relatedPlayerId: Long? = null,
     val relatedEventId: Long? = null,
     val recordingSegmentId: Long? = null,
-    val recordingOffsetMs: Long? = null
+    val recordingOffsetMs: Long? = null,
+    /** Where the ball crossed the goal line: 0 = left post, 1 = right post (viewed from the pitch). */
+    @ColumnInfo(defaultValue = "NULL") val goalX: Float? = null,
+    /** 0 = crossbar, 1 = ground. */
+    @ColumnInfo(defaultValue = "NULL") val goalY: Float? = null,
+    /** On-pitch positions right after a lineup change, encoded by [be.matchreview.app.domain.LineupSnapshot]. */
+    @ColumnInfo(defaultValue = "NULL") val lineupSnapshot: String? = null
 )
 
 @Entity(

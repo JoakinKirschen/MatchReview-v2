@@ -19,9 +19,8 @@ env:
   JAVA_VERSION: "17"
   ANDROID_API_LEVEL: "35"
   ANDROID_BUILD_TOOLS: "35.0.0"
-  # Keep APK delivery available while known unit-test assertions are fixed.
-  # Test failures are still reported and uploaded as artifacts.
-  FAIL_ON_TEST_FAILURE: "false"
+  # Unit-test failures fail the workflow; the APK and reports are still uploaded first.
+  FAIL_ON_TEST_FAILURE: "true"
   TERM: "dumb"
   GRADLE_OPTS: "-Dorg.gradle.console=plain -Dkotlin.colors.enabled=false"
 
@@ -33,20 +32,20 @@ jobs:
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up Java
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: ${{ env.JAVA_VERSION }}
           cache: gradle
 
       - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v4
+        uses: gradle/actions/setup-gradle@v5
 
       - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+        uses: android-actions/setup-android@v4
         with:
           packages: >-
             platform-tools
@@ -63,48 +62,6 @@ jobs:
           java -version
           ./gradlew --version
           sdkmanager --list_installed
-
-      # LiveMatchScreen uses an experimental Material 3 API. Remove the
-      # incorrect Material 2 opt-in added by the previous workflow revision,
-      # then add the Material 3 file-level opt-in before the package statement.
-      - name: Apply Compose Material 3 API opt-in
-        shell: bash
-        run: |
-          python3 - <<'PY'
-          from pathlib import Path
-
-          source = Path(
-              "app/src/main/java/be/matchreview/app/LiveMatchScreen.kt"
-          )
-          wrong_annotation = (
-              "@file:OptIn("
-              "androidx.compose.material.ExperimentalMaterialApi::class"
-              ")"
-          )
-          correct_annotation = (
-              "@file:OptIn("
-              "androidx.compose.material3.ExperimentalMaterial3Api::class"
-              ")"
-          )
-
-          if not source.exists():
-              raise SystemExit(f"Expected Kotlin source file not found: {source}")
-
-          text = source.read_text(encoding="utf-8-sig")
-
-          # Clean up the invalid annotation if it was committed or inserted.
-          text = text.replace(f"{wrong_annotation}\n\n", "")
-          text = text.replace(f"{wrong_annotation}\n", "")
-          text = text.replace(wrong_annotation, "")
-
-          if correct_annotation not in text:
-              text = f"{correct_annotation}\n\n{text.lstrip()}"
-              print(f"Added Material 3 API opt-in to {source}")
-          else:
-              print(f"Material 3 API opt-in already present in {source}")
-
-          source.write_text(text, encoding="utf-8")
-          PY
 
       # Capture Gradle output instead of streaming a long stack trace. If the
       # build fails, the next step prints compiler messages as the final output.
@@ -286,19 +243,27 @@ jobs:
           {
             echo "## Android unit tests"
             echo
-            echo "⚠️ 2 known unit tests failed, but the APK build succeeded."
+            echo "⚠️ Unit tests failed. Failed tests:"
             echo
-            echo "- \`LineupDragAndDropTest.dragFromPitchToBenchMovesPlayerOff\`"
-            echo "- \`LineupDragAndDropTest.dragFromBenchPlacesPlayerOnPitchWhereDropped\`"
+            python3 - <<'PY' || true
+          import glob
+          import xml.etree.ElementTree as ET
+
+          for path in glob.glob("app/build/test-results/testDebugUnitTest/*.xml"):
+              for case in ET.parse(path).getroot().iter("testcase"):
+                  if case.find("failure") is not None or case.find("error") is not None:
+                      name = case.get("classname", "").rsplit(".", 1)[-1]
+                      print(f"- `{name}.{case.get('name')}`")
+          PY
             echo
             echo "Download the **android-test-reports** artifact for the HTML and XML reports."
           } >> "$GITHUB_STEP_SUMMARY"
 
-          echo "::warning::Android unit tests failed. The APK is still published because FAIL_ON_TEST_FAILURE=false."
+          echo "::warning::Android unit tests failed. See the job summary for the failing tests."
 
       - name: Upload debug APK
         if: always() && steps.build.outcome == 'success'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: android-debug-apk
           path: "**/build/outputs/apk/debug/*.apk"
@@ -307,7 +272,7 @@ jobs:
 
       - name: Upload test reports
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: android-test-reports
           path: |
@@ -318,7 +283,7 @@ jobs:
 
       - name: Upload Gradle diagnostics
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: gradle-diagnostics
           path: |
@@ -327,8 +292,30 @@ jobs:
             compiler-errors.txt
             gradle-tests.log
             gradle-tests-clean.log
+            app/schemas/
           if-no-files-found: ignore
           retention-days: 14
+
+      # Room writes the schema of every database version to app/schemas during the build.
+      # The committed files document each version and must match the entities.
+      - name: Check Room schemas are committed
+        if: always() && steps.build.outcome == 'success'
+        shell: bash
+        run: |
+          changed="$(git status --porcelain --untracked-files=all -- app/schemas)"
+          if [[ -z "$changed" ]]; then
+            echo "Room schemas match the committed files."
+            exit 0
+          fi
+          echo "::error::Room schema files are missing or out of date. Commit the files under app/schemas."
+          echo "$changed"
+          git status --porcelain --untracked-files=all -- app/schemas | awk '{print $2}' | while read -r file; do
+            echo "===== BEGIN $file ====="
+            cat "$file"
+            echo
+            echo "===== END $file ====="
+          done
+          exit 1
 
       # Keep the concise compiler report at the very end of the failed job.
       - name: Fail when APK build failed

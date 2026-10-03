@@ -13,8 +13,11 @@ data class SeasonSummary(
 )
 
 object SeasonSummaryRules {
-    fun summarize(matches: List<GameMatch>): SeasonSummary {
-        val completed = matches.filter { it.status == MatchStatus.FINISHED }
+    /** Summarizes finished matches, limited to [teamIds] when given. */
+    fun summarize(matches: List<GameMatch>, teamIds: Set<Long>? = null): SeasonSummary {
+        val completed = matches.filter {
+            it.status == MatchStatus.FINISHED && (teamIds == null || it.teamId in teamIds)
+        }
         return SeasonSummary(
             played = completed.size,
             won = completed.count { it.ourScore > it.opponentScore },

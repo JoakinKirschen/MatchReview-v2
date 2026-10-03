@@ -110,7 +110,7 @@ class LineupDragAndDropTest {
         assertEquals(0.5f, saved.normalizedY, 0.05f)
         waitForTag(LineupTestTags.pitchPlayer(player))
         // The drag finished cleanly: controls that are disabled mid-drag are enabled again.
-        compose.onNodeWithText("Auto").assertIsEnabled()
+        compose.onNodeWithText("Auto-place").assertIsEnabled()
         compose.onNodeWithText("Match day").assertIsEnabled()
     }
 
@@ -138,7 +138,7 @@ class LineupDragAndDropTest {
 
         waitForPlacement(fixture, player) { !it.onPitch }
         waitForTag(LineupTestTags.benchPlayer(player))
-        compose.onNodeWithText("Auto").assertIsEnabled()
+        compose.onNodeWithText("Auto-place").assertIsEnabled()
     }
 
     @Test

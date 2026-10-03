@@ -17,7 +17,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.SportsSoccer
@@ -46,9 +46,18 @@ import be.matchreview.app.domain.ExportPrivacyOptions
 import be.matchreview.app.domain.MediaIntegrityRules
 import be.matchreview.app.domain.MatchIntegrityRules
 import be.matchreview.app.domain.SeasonSummaryRules
+import be.matchreview.app.domain.PracticeMatchRules
 import be.matchreview.app.domain.BackupEstimate
 import be.matchreview.app.domain.MatchSetupRules
 import be.matchreview.app.domain.VideoEventRules
+import be.matchreview.app.domain.GoalMouthGeometry
+import be.matchreview.app.domain.TimelineGrouping
+import be.matchreview.app.domain.TimelineItem
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.compose.ui.text.font.FontWeight
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import be.matchreview.app.recording.CameraRecordingController
 import be.matchreview.app.recording.activeMatchId
 import be.matchreview.app.recording.activeRecordingId
@@ -102,7 +111,7 @@ fun MatchReviewApp(vm: MainViewModel = viewModel()) {
                         if (!isTopLevel) {
                             IconButton(onClick = { nav.navigateUp() }) {
                                 Icon(
-                                    Icons.Default.ArrowBack,
+                                    Icons.AutoMirrored.Filled.ArrowBack,
                                     contentDescription = stringResource(R.string.navigate_back)
                                 )
                             }
@@ -177,6 +186,10 @@ private fun DashboardScreen(vm: MainViewModel, nav: NavHostController) {
     val matches by vm.matches.collectAsStateWithLifecycle()
     val activeMatch by vm.activeMatch.collectAsStateWithLifecycle()
     val lastBackupEpochMs by vm.lastBackupEpochMs.collectAsStateWithLifecycle()
+    var summaryTeamId by rememberSaveable { mutableLongStateOf(0L) }
+    LaunchedEffect(teams) {
+        if (teams.isNotEmpty() && summaryTeamId != 0L && teams.none { it.id == summaryTeamId }) summaryTeamId = 0L
+    }
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(20.dp),
@@ -193,10 +206,33 @@ private fun DashboardScreen(vm: MainViewModel, nav: NavHostController) {
             }
         }
         item {
-            val summary = SeasonSummaryRules.summarize(matches)
+            // 0 = all real teams; the practice team only counts when picked explicitly.
+            val realTeams = teams.filterNot(PracticeMatchRules::isPracticeTeam)
+            val summaryTeamIds = if (summaryTeamId == 0L) {
+                realTeams.mapTo(mutableSetOf()) { it.id }
+            } else setOf(summaryTeamId)
+            val summary = SeasonSummaryRules.summarize(matches, summaryTeamIds)
             Card(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(14.dp)) {
                     Text("Completed matches", style = MaterialTheme.typography.titleMedium)
+                    if (teams.size > 1) {
+                        LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            item {
+                                FilterChip(
+                                    selected = summaryTeamId == 0L,
+                                    onClick = { summaryTeamId = 0L },
+                                    label = { Text(if (realTeams.size == teams.size) "All teams" else "All real teams") }
+                                )
+                            }
+                            items(teams, key = { it.id }) { team ->
+                                FilterChip(
+                                    selected = summaryTeamId == team.id,
+                                    onClick = { summaryTeamId = team.id },
+                                    label = { Text(team.name) }
+                                )
+                            }
+                        }
+                    }
                     Text("${summary.played} played • ${summary.won} won • ${summary.drawn} drawn • ${summary.lost} lost")
                     Text("Goals ${summary.goalsFor}-${summary.goalsAgainst}", style = MaterialTheme.typography.bodySmall)
                 }
@@ -634,9 +670,12 @@ private fun TeamsScreen(vm: MainViewModel, nav: NavHostController) {
         if (teams.isEmpty()) item { EmptyCard("Create your first team.") }
         items(teams) { team ->
             Card(Modifier.fillMaxWidth().clickable { nav.navigate("team/${team.id}") }) {
-                Column(Modifier.padding(16.dp)) {
-                    Text(team.name, style = MaterialTheme.typography.titleLarge)
-                    Text(listOf(team.club, team.ageGroup, team.season).filter { it.isNotBlank() }.joinToString(" • "))
+                Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                    TeamLogoImage(team.logoPng, 48.dp, Modifier.padding(end = 12.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(team.name, style = MaterialTheme.typography.titleLarge)
+                        Text(listOf(team.club, team.ageGroup, team.season).filter { it.isNotBlank() }.joinToString(" • "))
+                    }
                 }
             }
         }
@@ -672,12 +711,75 @@ private fun TeamScreen(teamId: Long, vm: MainViewModel, nav: NavHostController) 
     val context = LocalContext.current
     val clipDeleter = rememberClipDeleter()
     val cameraState by CameraRecordingController.state.collectAsStateWithLifecycle()
+    val scope = rememberCoroutineScope()
+    var logoMessage by remember { mutableStateOf<String?>(null) }
+    val logoPicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.PickVisualMedia()
+    ) { uri ->
+        if (uri != null) {
+            scope.launch {
+                val encoded = withContext(Dispatchers.IO) { TeamLogoCodec.encodeFromUri(context, uri) }
+                if (encoded == null) {
+                    logoMessage = "That image could not be read. Try a PNG or JPEG file."
+                } else {
+                    vm.setTeamLogo(teamId, encoded)
+                    logoMessage = null
+                }
+            }
+        }
+    }
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(20.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
+        item {
+            Card(Modifier.fillMaxWidth()) {
+                Row(
+                    Modifier.fillMaxWidth().padding(12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    if (team?.logoPng != null) {
+                        TeamLogoImage(team.logoPng, 64.dp)
+                    } else {
+                        Surface(
+                            shape = MaterialTheme.shapes.medium,
+                            color = MaterialTheme.colorScheme.surfaceVariant,
+                            modifier = Modifier.size(64.dp)
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Text(team?.name?.take(2)?.uppercase() ?: "", fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
+                    Column(Modifier.weight(1f)) {
+                        Text("Team logo", style = MaterialTheme.typography.titleMedium)
+                        Text(
+                            "Shown in the team list and on PDF match summaries.",
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            TextButton(
+                                onClick = {
+                                    logoPicker.launch(
+                                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                                    )
+                                },
+                                enabled = team != null
+                            ) { Text(if (team?.logoPng != null) "Change" else "Upload logo") }
+                            if (team?.logoPng != null) {
+                                TextButton(onClick = { vm.setTeamLogo(teamId, null) }) { Text("Remove") }
+                            }
+                        }
+                        logoMessage?.let {
+                            Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
+                }
+            }
+        }
         item {
             Text(team?.name ?: "Team", style = MaterialTheme.typography.headlineMedium)
             Text("Tap a player to edit their details.", style = MaterialTheme.typography.bodySmall)
@@ -1076,18 +1178,32 @@ private fun NewMatchScreen(vm: MainViewModel, nav: NavHostController) {
             EmptyCard("Create a team before adding a match.")
             Button(onClick = { nav.navigate("team/new") }) { Text("Create team") }
         } else {
-            Box {
-                OutlinedButton(onClick = { teamMenu = true }, modifier = Modifier.fillMaxWidth()) {
-                    Text(teams.firstOrNull { it.id == teamId }?.name ?: "Choose team")
-                }
-                DropdownMenu(expanded = teamMenu, onDismissRequest = { teamMenu = false }) {
-                    teams.forEach { team ->
-                        DropdownMenuItem(
-                            text = { Text(team.name) },
-                            onClick = { teamId = team.id; teamMenu = false }
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box(Modifier.weight(1f)) {
+                    OutlinedButton(
+                        onClick = { teamMenu = true },
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                    ) {
+                        Text(
+                            teams.firstOrNull { it.id == teamId }?.name ?: "Choose team",
+                            maxLines = 1,
+                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                         )
                     }
+                    DropdownMenu(expanded = teamMenu, onDismissRequest = { teamMenu = false }) {
+                        teams.forEach { team ->
+                            DropdownMenuItem(
+                                text = { Text(team.name) },
+                                onClick = { teamId = team.id; teamMenu = false }
+                            )
+                        }
+                    }
                 }
+                HomeAwaySelector(home, { home = it })
             }
             Field(opponent, { opponent = it }, "Opponent")
             OutlinedButton(
@@ -1166,11 +1282,6 @@ private fun NewMatchScreen(vm: MainViewModel, nav: NavHostController) {
                 style = MaterialTheme.typography.bodySmall
             )
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Switch(home, { home = it })
-                Spacer(Modifier.width(8.dp))
-                Text(if (home) "Home match" else "Away match")
-            }
-            Row(verticalAlignment = Alignment.CenterVertically) {
                 Switch(rollingSubstitutions, { rollingSubstitutions = it })
                 Spacer(Modifier.width(8.dp))
                 Column {
@@ -1211,33 +1322,14 @@ private fun NewMatchScreen(vm: MainViewModel, nav: NavHostController) {
     }
 
     if (showDatePicker) {
-        val initialMillis = remember(date) {
-            runCatching {
-                SimpleDateFormat("yyyy-MM-dd", Locale.US).parse(date)?.time
-            }.getOrNull()
-        }
-        val datePickerState = rememberDatePickerState(initialSelectedDateMillis = initialMillis)
-        DatePickerDialog(
-            onDismissRequest = { showDatePicker = false },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        datePickerState.selectedDateMillis?.let { selected ->
-                            val formatter = SimpleDateFormat("yyyy-MM-dd", Locale.US).apply {
-                                timeZone = TimeZone.getTimeZone("UTC")
-                            }
-                            date = formatter.format(Date(selected))
-                        }
-                        showDatePicker = false
-                    }
-                ) { Text("Use date") }
-            },
-            dismissButton = {
-                TextButton(onClick = { showDatePicker = false }) { Text("Cancel") }
+        MatchDatePickerDialog(
+            date = date,
+            onDismiss = { showDatePicker = false },
+            onPicked = {
+                date = it
+                showDatePicker = false
             }
-        ) {
-            DatePicker(state = datePickerState)
-        }
+        )
     }
 }
 
@@ -1248,8 +1340,12 @@ private fun ReviewScreen(matchId: Long, vm: MainViewModel, nav: NavHostControlle
     val participations by vm.participations(matchId).collectAsStateWithLifecycle(initialValue = emptyList())
     val recordings by vm.recordings(matchId).collectAsStateWithLifecycle(initialValue = emptyList())
     val allPlayers by vm.players.collectAsStateWithLifecycle()
+    val teams by vm.teams.collectAsStateWithLifecycle()
+    var showDetailsEditor by remember { mutableStateOf(false) }
+    var goalPositionEvent by remember { mutableStateOf<MatchEvent?>(null) }
     val current = match ?: return Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
     val teamPlayers = allPlayers.filter { it.teamId == current.teamId }
+    val team = teams.firstOrNull { it.id == current.teamId }
     val context = LocalContext.current
     var player by remember { mutableStateOf<ExoPlayer?>(null) }
     var showTag by remember { mutableStateOf(false) }
@@ -1297,6 +1393,7 @@ private fun ReviewScreen(matchId: Long, vm: MainViewModel, nav: NavHostControlle
                     MatchPdfExporter.write(
                         output,
                         current,
+                        team,
                         teamPlayers,
                         events,
                         participations,
@@ -1338,8 +1435,27 @@ private fun ReviewScreen(matchId: Long, vm: MainViewModel, nav: NavHostControlle
     }
 
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Text("vs ${current.opponent}", style = MaterialTheme.typography.headlineMedium)
-        Text("${current.matchDate} • ${current.formation}")
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            TeamLogoImage(team?.logoPng, 48.dp, Modifier.padding(end = 12.dp))
+            Column(Modifier.weight(1f)) {
+                Text(
+                    if (current.isHome) "${team?.name ?: "Home"} vs ${current.opponent}"
+                    else "${current.opponent} vs ${team?.name ?: "Away"}",
+                    style = MaterialTheme.typography.headlineSmall
+                )
+                Text(
+                    listOf(
+                        current.matchDate,
+                        if (current.isHome) "Home" else "Away",
+                        current.venue,
+                        current.competition,
+                        current.formation
+                    ).filter { it.isNotBlank() }.joinToString(" • "),
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+            TextButton(onClick = { showDetailsEditor = true }) { Text("Edit") }
+        }
         if (integrityIssues.isNotEmpty()) {
             Card(
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer),
@@ -1457,12 +1573,45 @@ private fun ReviewScreen(matchId: Long, vm: MainViewModel, nav: NavHostControlle
         if (reviewSection == ReviewSection.TIMELINE) {
         Text("Event timeline", style = MaterialTheme.typography.titleLarge)
         if (events.isEmpty()) EmptyCard("Play the video and tag important moments.")
-        events.forEach { event ->
+        val playersById = allPlayers.associateBy { it.id }
+        // Live events use match time while imported-video tags use the video position, so
+        // they are listed separately instead of being sorted into one misleading order.
+        val (videoTags, matchEvents) = events
+            .sortedWith(compareBy<MatchEvent> { it.timestampMs }.thenBy { it.id })
+            .partition(VideoEventRules::isImportedVideoTag)
+        listOf(
+            Triple("Match events", "Times are match time.", TimelineGrouping.group(matchEvents)),
+            Triple(
+                "Imported video tags",
+                "Times are positions in the imported video.",
+                videoTags.map { TimelineItem.Single(it) }
+            )
+        ).filter { it.third.isNotEmpty() }.forEach { (sectionTitle, sectionHint, sectionItems) ->
+        Text(sectionTitle, style = MaterialTheme.typography.titleMedium)
+        Text(sectionHint, style = MaterialTheme.typography.bodySmall)
+        sectionItems.forEach { item ->
+            if (item is TimelineItem.LineupChange) {
+                val first = item.events.first()
+                LineupChangeCard(
+                    change = item,
+                    playersById = playersById,
+                    trailing = {
+                        Column(horizontalAlignment = Alignment.End) {
+                            if (VideoEventRules.isPlayable(first, recordings)) {
+                                TextButton(onClick = { selectedClipEvent = first }) { Text("▶ Clip") }
+                            }
+                        }
+                    }
+                )
+                return@forEach
+            }
+            val event = (item as TimelineItem.Single).event
             val playerName = teamPlayers.firstOrNull { it.id == event.playerId }?.name
             // Tags made on the imported video store the video position; live events store
             // match time and can only be shown from the clip recorded in the app.
             val videoTag = VideoEventRules.isImportedVideoTag(event)
             val clipPlayable = !videoTag && VideoEventRules.isPlayable(event, recordings)
+            val scoring = event.type == "OUR_GOAL" || event.type == "OPPONENT_GOAL"
             Card(
                 Modifier.fillMaxWidth().clickable(enabled = (videoTag && player != null) || clipPlayable) {
                     if (videoTag) {
@@ -1476,7 +1625,14 @@ private fun ReviewScreen(matchId: Long, vm: MainViewModel, nav: NavHostControlle
                 Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
                         Text("${formatTime(event.timestampMs)} • ${reviewEventLabel(event.type)}", style = MaterialTheme.typography.titleMedium)
-                        Text(listOfNotNull(playerName, event.sentiment, event.note.takeIf { it.isNotBlank() }).joinToString(" • "))
+                        Text(
+                            listOfNotNull(
+                                playerName,
+                                event.sentiment,
+                                event.note.takeIf { it.isNotBlank() },
+                                GoalMouthGeometry.describe(event.goalX, event.goalY)?.let { "goal position: $it" }
+                            ).joinToString(" • ")
+                        )
                         Text(
                             when {
                                 videoTag -> "Imported video position"
@@ -1486,13 +1642,33 @@ private fun ReviewScreen(matchId: Long, vm: MainViewModel, nav: NavHostControlle
                             style = MaterialTheme.typography.bodySmall
                         )
                     }
-                    TextButton(onClick = { pendingEventDeletion = event }) { Text("Delete") }
+                    Column(horizontalAlignment = Alignment.End) {
+                        if (scoring) {
+                            TextButton(onClick = { goalPositionEvent = event }) { Text("Position") }
+                        }
+                        TextButton(onClick = { pendingEventDeletion = event }) { Text("Delete") }
+                    }
                 }
             }
         }
         }
+        }
 
         if (reviewSection == ReviewSection.SUMMARY) {
+            val saves = events.filter { it.type == "KEEPER_SAVE" }
+            Card(Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text("Goalkeeping", style = MaterialTheme.typography.titleMedium)
+                    Text("${saves.size} save(s) • ${current.opponentScore} goal(s) conceded")
+                    saves.groupBy { it.playerId }.forEach { (keeperId, keeperSaves) ->
+                        Text(
+                            "${teamPlayers.firstOrNull { it.id == keeperId }?.name ?: "Keeper not assigned"}: ${keeperSaves.size}",
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
+                }
+            }
+            GoalMap(events, current.opponent, Modifier.fillMaxWidth())
             ReviewEditor(current, vm)
         }
 
@@ -1628,6 +1804,32 @@ private fun ReviewScreen(matchId: Long, vm: MainViewModel, nav: NavHostControlle
         )
     }
 
+    if (showDetailsEditor) {
+        MatchDetailsDialog(
+            match = current,
+            onDismiss = { showDetailsEditor = false },
+            onSave = { opponent, date, venue, competition, home ->
+                vm.updateMatchDetails(matchId, opponent, date, venue, competition, home) {
+                    showDetailsEditor = false
+                }
+            }
+        )
+    }
+
+    goalPositionEvent?.let { event ->
+        GoalPlacementDialog(
+            title = if (event.type == "OPPONENT_GOAL") "Where did ${current.opponent} score?"
+            else "Where did ${team?.name ?: "your team"} score?",
+            initialX = event.goalX,
+            initialY = event.goalY,
+            onSkip = { goalPositionEvent = null },
+            onSave = { x, y ->
+                vm.setGoalPlacement(event.id, x, y)
+                goalPositionEvent = null
+            }
+        )
+    }
+
     selectedClipEvent?.let { event ->
         VideoEventPlaybackSheet(
             initialEvent = event,
@@ -1655,6 +1857,11 @@ private fun reviewEventLabel(type: String): String = when (type) {
     "OUR_GOAL" -> "Our goal"
     "OPPONENT_GOAL" -> "Opponent goal"
     "SUBSTITUTION" -> "Substitution"
+    "KEEPER_SAVE" -> "Keeper save"
+    "POSITION_CHANGE" -> "Positions changed"
+    "PLAYER_ON" -> "Player on"
+    "PLAYER_OFF" -> "Player off"
+    "INJURY_OFF" -> "Injury"
     "YELLOW_CARD" -> "Yellow card"
     "RED_CARD" -> "Red card"
     else -> type.lowercase().replace('_', ' ').replaceFirstChar { it.uppercase() }

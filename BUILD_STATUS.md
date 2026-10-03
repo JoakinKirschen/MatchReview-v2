@@ -2,10 +2,10 @@
 
 ## Release candidate
 
-- Version name: `1.4.0`
-- Version code: `6`
-- Includes implementation passes 1–45
-- Room database version remains `4`
+- Version name: `1.5.0`
+- Version code: `7`
+- Includes implementation passes 1–51
+- Room database version `5` (migration 4 → 5 adds team logos, goal positions and lineup pictures)
 - Backup format is `2` with restore support for legacy format `1`
 
 ## Workspace build result

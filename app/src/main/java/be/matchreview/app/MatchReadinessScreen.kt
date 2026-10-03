@@ -2,6 +2,8 @@ package be.matchreview.app
 
 import android.os.StatFs
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -10,6 +12,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavHostController
+import be.matchreview.app.domain.GoalkeeperRules
 
 @Composable
 fun MatchReadinessScreen(
@@ -23,6 +26,7 @@ fun MatchReadinessScreen(
     val players by vm.players.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val current = match
+    var showDetailsEditor by remember { mutableStateOf(false) }
 
     if (current == null) {
         Box(Modifier.fillMaxSize(), contentAlignment = androidx.compose.ui.Alignment.Center) {
@@ -34,12 +38,8 @@ fun MatchReadinessScreen(
     val selectedIds = squad.filter { it.selected }.mapTo(mutableSetOf()) { it.playerId }
     val starters = lineup.filter { it.onPitch && it.playerId in selectedIds }
     val selectedPlayers = players.filter { it.id in selectedIds }
-    val goalkeeperReady = starters.any { placement ->
-        val player = players.firstOrNull { it.id == placement.playerId }
-        placement.role.contains("goal", true) ||
-            player?.position?.contains("goal", true) == true ||
-            (player?.position ?: "").equals("GK", true)
-    }
+    // Formation slots label the keeper "GK", which a plain "goal" text check never matched.
+    val goalkeeperReady = GoalkeeperRules.onPitchGoalkeepers(starters, squad, players).isNotEmpty()
     val freeBytes = remember {
         runCatching { StatFs(context.filesDir.absolutePath).availableBytes }.getOrDefault(0L)
     }
@@ -51,7 +51,7 @@ fun MatchReadinessScreen(
     val fullLineup = starters.size == current.playersOnPitch
 
     Column(
-        Modifier.fillMaxSize().padding(20.dp),
+        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
         Text("Match-day check", style = MaterialTheme.typography.headlineMedium)
@@ -67,6 +67,10 @@ fun MatchReadinessScreen(
                 ReadinessRow("Formation", current.formation)
                 ReadinessRow("Timing", "${current.periodCount} × ${current.periodDurationMinutes} min")
                 ReadinessRow("Venue", current.venue.ifBlank { "Not specified" })
+                ReadinessRow("Date", current.matchDate)
+                ReadinessRow("Home or away", if (current.isHome) "Home" else "Away")
+                ReadinessRow("Competition", current.competition.ifBlank { "Not specified" })
+                TextButton(onClick = { showDetailsEditor = true }) { Text("Edit match details") }
                 ReadinessRow("Storage", freeStorageLabel)
             }
         }
@@ -89,7 +93,7 @@ fun MatchReadinessScreen(
             style = MaterialTheme.typography.bodySmall
         )
 
-        Spacer(Modifier.weight(1f))
+        Spacer(Modifier.height(8.dp))
         OutlinedButton(
             onClick = { nav.navigate("lineup/$matchId") },
             modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
@@ -103,6 +107,18 @@ fun MatchReadinessScreen(
             enabled = starters.isNotEmpty(),
             modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp)
         ) { Text("Open match day") }
+    }
+
+    if (showDetailsEditor) {
+        MatchDetailsDialog(
+            match = current,
+            onDismiss = { showDetailsEditor = false },
+            onSave = { opponent, date, venue, competition, home ->
+                vm.updateMatchDetails(matchId, opponent, date, venue, competition, home) {
+                    showDetailsEditor = false
+                }
+            }
+        )
     }
 }
 

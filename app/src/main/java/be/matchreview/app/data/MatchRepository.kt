@@ -151,6 +151,24 @@ class MatchRepository(private val dao: MatchDao) {
 
     suspend fun deleteTeam(team: Team) = dao.deleteTeam(team)
 
+    suspend fun setTeamLogo(teamId: Long, logoPng: String?) = dao.updateTeamLogo(teamId, logoPng)
+
+    suspend fun updateMatchDetails(
+        matchId: Long,
+        opponent: String,
+        date: String,
+        venue: String,
+        competition: String,
+        home: Boolean
+    ) = dao.updateMatchDetails(
+        matchId,
+        opponent.trim(),
+        date.trim(),
+        venue.trim(),
+        competition.trim(),
+        home
+    )
+
     suspend fun teamMedia(teamId: Long) = TeamMedia(
         recordingUris = dao.getRecordingUrisForTeam(teamId),
         importedVideoUris = dao.getImportedVideoUrisForTeam(teamId)
@@ -215,6 +233,8 @@ class MatchRepository(private val dao: MatchDao) {
 
     suspend fun deleteEvent(event: MatchEvent) = dao.deleteTimelineEvent(event.id)
 
+    suspend fun deleteEventById(eventId: Long) = dao.deleteTimelineEvent(eventId)
+
     suspend fun kickOffMatch(matchId: Long, monotonicNowMs: Long, wallClockNowMs: Long) =
         dao.kickOffMatch(matchId, monotonicNowMs, wallClockNowMs)
 
@@ -243,6 +263,13 @@ class MatchRepository(private val dao: MatchDao) {
     ) = dao.substitutePlayer(
         matchId, outgoingPlayerId, incomingPlayerId, monotonicNowMs, wallClockNowMs
     )
+
+    suspend fun applySubstitutionRound(
+        matchId: Long,
+        planned: List<MatchLineupPlacement>,
+        monotonicNowMs: Long,
+        wallClockNowMs: Long
+    ) = dao.applySubstitutionRound(matchId, planned, monotonicNowMs, wallClockNowMs)
 
     suspend fun removePlayerFromPitch(
         matchId: Long,
@@ -277,6 +304,20 @@ class MatchRepository(private val dao: MatchDao) {
         monotonicNowMs: Long,
         wallClockNowMs: Long
     ) = dao.recordOpponentGoal(matchId, monotonicNowMs, wallClockNowMs)
+
+    suspend fun recordKeeperSave(
+        matchId: Long,
+        keeperPlayerId: Long?,
+        monotonicNowMs: Long,
+        wallClockNowMs: Long
+    ) = dao.recordKeeperSave(matchId, keeperPlayerId, monotonicNowMs, wallClockNowMs)
+
+    suspend fun setGoalPlacement(eventId: Long, goalX: Float?, goalY: Float?) =
+        dao.setGoalPlacement(
+            eventId,
+            goalX?.coerceIn(0f, 1f),
+            goalY?.coerceIn(0f, 1f)
+        )
 
     suspend fun updateOurGoal(
         eventId: Long,

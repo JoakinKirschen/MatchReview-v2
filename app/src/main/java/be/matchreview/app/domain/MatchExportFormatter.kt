@@ -43,7 +43,7 @@ object MatchExportFormatter {
             appendLine(row("minutes_per_period", match.periodDurationMinutes.toString()))
             appendLine()
             appendLine("events")
-            appendLine("id,match_time_ms,period,type,player,related_player,sentiment,note,video_segment_id,video_offset_ms")
+            appendLine("id,match_time_ms,period,type,player,related_player,sentiment,note,video_segment_id,video_offset_ms,goal_x,goal_y")
             events.sortedWith(compareBy<MatchEvent> { it.timestampMs }.thenBy { it.id }).forEach { event ->
                 appendLine(
                     listOf(
@@ -56,7 +56,9 @@ object MatchExportFormatter {
                         event.sentiment,
                         ExportPrivacyRules.note(event.note, privacy),
                         event.recordingSegmentId.csvValue(),
-                        event.recordingOffsetMs.csvValue()
+                        event.recordingOffsetMs.csvValue(),
+                        event.goalX.csvValue(),
+                        event.goalY.csvValue()
                     ).joinToString(",") { csv(it.toString()) }
                 )
             }

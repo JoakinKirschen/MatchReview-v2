@@ -14,6 +14,7 @@ import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Test
 import org.junit.runner.RunWith
 
@@ -72,6 +73,10 @@ class DatabaseUpgradeTest {
                 assertEquals(7, match.teamRating)
                 assertFalse(dao.observeAllPlayers().first().single().archived)
                 assertEquals(0, dao.getEventOnce(1)!!.periodNumber)
+                // Version 5 columns start empty on upgraded rows.
+                assertNull(dao.getEventOnce(1)!!.goalX)
+                assertNull(dao.getEventOnce(1)!!.lineupSnapshot)
+                assertNull(dao.observeTeams().first().single().logoPng)
             }
         } finally {
             database.close()
