@@ -2583,7 +2583,7 @@ private fun Field(value: String, change: (String) -> Unit, label: String, modifi
 
 @Composable
 private fun EmptyCard(message: String) {
-    AppCard(Modifier.fillMaxWidth()) { Text(message, Modifier.padding(20.dp)) }
+    AppCard(Modifier.fillMaxWidth()) { Text(message, Modifier.padding(16.dp)) }
 }
 
 private fun formatTime(milliseconds: Long): String {
