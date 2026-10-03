@@ -1576,10 +1576,10 @@ private fun LivePitch(
         PitchLines(Modifier.fillMaxSize())
         placements.forEach { placement ->
             val player = playersById[placement.playerId] ?: return@forEach
-            val marker = 58.dp
+            val marker = 72.dp
             // Name and minutes hang below the badge; keep the whole marker on the grass.
             val x = (maxWidth * placement.normalizedX - marker / 2).coerceIn(0.dp, (maxWidth - marker).coerceAtLeast(0.dp))
-            val y = (maxHeight * placement.normalizedY - 21.dp).coerceIn(0.dp, (maxHeight - 76.dp).coerceAtLeast(0.dp))
+            val y = (maxHeight * placement.normalizedY - 21.dp).coerceIn(0.dp, (maxHeight - 62.dp).coerceAtLeast(0.dp))
             Column(
                 Modifier.offset(x = x, y = y).width(marker).clickable { onPlayerClick(player.id) },
                 horizontalAlignment = Alignment.CenterHorizontally
@@ -1599,19 +1599,14 @@ private fun LivePitch(
                         )
                     }
                 }
+                // Name and minutes on one line keeps the markers compact on a crowded pitch.
                 Text(
-                    player.name.substringBefore(" "),
+                    "${player.name.substringBefore(" ")} ${MatchClockCalculator.displayedWholeMinutes(minutesFor(player.id))}'",
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     style = MaterialTheme.typography.labelSmall,
                     fontWeight = FontWeight.Bold,
                     color = Color.Black
-                )
-                Text(
-                    "${MatchClockCalculator.displayedWholeMinutes(minutesFor(player.id))}'",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = Color(0xFF16330E),
-                    fontWeight = FontWeight.Bold
                 )
             }
         }

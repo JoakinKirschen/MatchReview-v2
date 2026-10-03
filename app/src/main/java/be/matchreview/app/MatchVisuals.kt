@@ -62,7 +62,7 @@ fun LineupSnapshotPitch(
     BoxWithConstraints(
         modifier
             .fillMaxWidth()
-            .aspectRatio(1.6f)
+            .aspectRatio(1.45f)
             .clip(RoundedCornerShape(12.dp))
             .background(PitchColors.grass)
             .semantics {

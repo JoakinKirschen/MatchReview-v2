@@ -90,7 +90,7 @@ import java.text.SimpleDateFormat
 import java.util.*
 
 private enum class ReviewSection(val label: String) {
-    SUMMARY("Summary"),
+    SUMMARY("Report"),
     TIMELINE("Timeline"),
     VIDEO("Video"),
     DATA("Data")
@@ -1063,7 +1063,7 @@ private fun TeamScreen(teamId: Long, vm: MainViewModel, nav: NavHostController) 
                     Spacer(Modifier.width(16.dp))
                     Column(Modifier.weight(1f)) {
                         Text(player.name, style = MaterialTheme.typography.titleMedium)
-                        Text(player.position.ifBlank { "Position not set" })
+                        if (player.position.isNotBlank()) Text(player.position)
                         if (player.preferredFoot.isNotBlank()) {
                             Text(
                                 "Preferred foot: ${player.preferredFoot}",

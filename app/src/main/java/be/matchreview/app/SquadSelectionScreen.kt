@@ -159,17 +159,20 @@ fun SquadSelectionScreen(
                 Modifier.fillMaxWidth().padding(12.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Text(
-                    when {
-                        summary.selectedCount == 0 -> "Select at least one player."
-                        summary.selectedCount < current.playersOnPitch ->
-                            "Select ${current.playersOnPitch - summary.selectedCount} more for a full ${current.playersOnPitch}v${current.playersOnPitch} lineup, or continue with fewer."
-                        else -> "${summary.selectedCount} players selected."
-                    },
-                    color = if (summary.selectedCount == 0) MaterialTheme.colorScheme.error
-                    else MaterialTheme.colorScheme.primary,
-                    style = MaterialTheme.typography.bodySmall
-                )
+                // Only a warning; the count itself is in the summary at the top.
+                when {
+                    summary.selectedCount == 0 -> "Select at least one player."
+                    summary.selectedCount < current.playersOnPitch ->
+                        "Select ${current.playersOnPitch - summary.selectedCount} more for a full ${current.playersOnPitch}v${current.playersOnPitch} lineup, or continue with fewer."
+                    else -> null
+                }?.let { warning ->
+                    Text(
+                        warning,
+                        color = if (summary.selectedCount == 0) MaterialTheme.colorScheme.error
+                        else MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
                 AppButton(
                     enabled = summary.canContinue,
                     onClick = { nav.navigate("lineup/$matchId") },
@@ -248,10 +251,9 @@ private fun SquadPlayerCard(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
-                Text(
-                    player.position.ifBlank { "Position not set" },
-                    style = MaterialTheme.typography.bodySmall
-                )
+                if (player.position.isNotBlank()) {
+                    Text(player.position, style = MaterialTheme.typography.bodySmall)
+                }
             }
             Box {
                 AssistChip(

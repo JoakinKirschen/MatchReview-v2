@@ -477,7 +477,7 @@ internal fun PitchView(
             key(player.id) {
                 // Name and minutes hang below the badge; keep the whole marker on the grass.
                 val markerHeightPx = with(density) {
-                    (if (subtitleFor(player.id) != null) 80.dp else 64.dp).toPx()
+                    (if (subtitleFor(player.id) != null) 84.dp else 68.dp).toPx()
                 }
                 PlayerMarker(
                     player = player,
