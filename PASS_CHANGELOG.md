@@ -1,7 +1,7 @@
 # MatchReview Pass Changelog
 
 This is the **single source of truth** for implementation-pass notes and change tracking.
-It consolidates implementation notes for Passes 1–55.
+It consolidates implementation notes for Passes 1–56.
 
 ## How to maintain this file
 
@@ -37,7 +37,7 @@ For every future development pass:
 
 | Pass | Status | Planned change | Version impact |
 |---:|---|---|---|
-| 56 | Not scheduled | Add the next approved recommendation here | To be determined |
+| 57 | Not scheduled | Add the next approved recommendation here | To be determined |
 
 ## Documentation changes
 
@@ -123,6 +123,7 @@ For every future development pass:
 | 53 | [Full-screen substitution mode](#pass-53-full-screen-substitution-mode) |
 | 54 | [Lineup fixes, remembered format, logo files, PDF sharing](#pass-54-lineup-fixes-remembered-format-logo-files-pdf-sharing) |
 | 55 | [Coaching insights and sideline comfort](#pass-55-coaching-insights-and-sideline-comfort) |
+| 56 | [Editable season stats and a cleaner dashboard](#pass-56-editable-season-stats-and-a-cleaner-dashboard) |
 
 ---
 
@@ -1329,3 +1330,16 @@ begin.
 
 ### Deferred or known limitations
 - The period reminder works while the live screen is open (it stays on during a match); there is no background notification.
+
+## Pass 56 — Editable season stats and a cleaner dashboard
+
+**Status:** Completed  
+**Completed:** 2026-10-03  
+**Version impact:** Database 6 (`players.stat*Adjustment` columns)
+
+### Added or changed
+- Season stats can be corrected: tap a player in the team's stats table to edit matches, minutes, goals, assists and saves. Corrections are stored separately from tracked data, so later tracked matches keep adding on top; corrected rows show ✎ and can be reset to the tracked numbers. The table is shown as soon as the team has players.
+- Dashboard: the System / Light / Dark / Outdoor buttons are at the top without a title or description; the "Coach dashboard" heading and subtitle are removed.
+
+### Tests and verification
+- Added correction tests to `MatchInsightsRulesTest`; the database upgrade test covers migration 5 → 6.

@@ -204,8 +204,27 @@ private fun DashboardScreen(vm: MainViewModel, nav: NavHostController) {
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         item {
-            Text("Coach dashboard", style = MaterialTheme.typography.headlineMedium)
-            Text("Offline match analysis and player feedback")
+            val themeMode by vm.themeMode.collectAsStateWithLifecycle()
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                ThemeMode.entries.forEach { mode ->
+                    FilterChip(
+                        selected = themeMode == mode,
+                        onClick = { vm.setThemeMode(mode) },
+                        label = {
+                            Text(
+                                mode.label,
+                                maxLines = 1,
+                                modifier = Modifier.fillMaxWidth(),
+                                textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                            )
+                        },
+                        modifier = Modifier.weight(1f).heightIn(min = 48.dp)
+                    )
+                }
+            }
         }
         item {
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -317,28 +336,6 @@ private fun DashboardScreen(vm: MainViewModel, nav: NavHostController) {
         items(matches.take(5)) { match ->
             MatchCard(match, teams.firstOrNull { it.id == match.teamId }?.name ?: "Team") {
                 nav.navigate(matchDestination(match))
-            }
-        }
-        item {
-            val themeMode by vm.themeMode.collectAsStateWithLifecycle()
-            Card(Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text("Display", style = MaterialTheme.typography.titleMedium)
-                    Text(
-                        "Outdoor uses extra contrast for bright sunlight on the sideline.",
-                        style = MaterialTheme.typography.bodySmall
-                    )
-                    LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        items(ThemeMode.entries) { mode ->
-                            FilterChip(
-                                selected = themeMode == mode,
-                                onClick = { vm.setThemeMode(mode) },
-                                label = { Text(mode.label) },
-                                modifier = Modifier.heightIn(min = 48.dp)
-                            )
-                        }
-                    }
-                }
             }
         }
     }
@@ -742,6 +739,7 @@ private fun TeamScreen(teamId: Long, vm: MainViewModel, nav: NavHostController) 
     val seasonStats by seasonStatsFlow.collectAsStateWithLifecycle(initialValue = emptyList())
     var showAdd by remember { mutableStateOf(false) }
     var editingPlayer by remember { mutableStateOf<Player?>(null) }
+    var editingStats by remember { mutableStateOf<be.matchreview.app.domain.PlayerSeasonStats?>(null) }
     var showDeleteTeam by remember { mutableStateOf(false) }
     val context = LocalContext.current
     val clipDeleter = rememberClipDeleter()
@@ -858,8 +856,8 @@ private fun TeamScreen(teamId: Long, vm: MainViewModel, nav: NavHostController) 
                 ) { Text("Remove team") }
             }
         }
-        if (seasonStats.any { it.matchesPlayed > 0 }) {
-            item { SeasonStatsCard(seasonStats) }
+        if (seasonStats.isNotEmpty()) {
+            item { SeasonStatsCard(seasonStats, onEdit = { editingStats = it }) }
         }
         if (players.isEmpty()) item { EmptyCard("No players yet.") }
         items(players, key = { it.id }) { player ->
@@ -919,6 +917,21 @@ private fun TeamScreen(teamId: Long, vm: MainViewModel, nav: NavHostController) 
             },
             dismissButton = {
                 TextButton(onClick = { showAdd = false }) { Text("Cancel") }
+            }
+        )
+    }
+
+    editingStats?.let { stats ->
+        PlayerStatsDialog(
+            stats = stats,
+            onDismiss = { editingStats = null },
+            onSave = {
+                vm.correctSeasonStats(stats, it)
+                editingStats = null
+            },
+            onReset = {
+                vm.correctSeasonStats(stats, null)
+                editingStats = null
             }
         )
     }
@@ -984,18 +997,21 @@ private fun TeamScreen(teamId: Long, vm: MainViewModel, nav: NavHostController) 
     }
 }
 
-/** Minutes, goals, assists and saves per player; the fewest minutes are highlighted. */
+/** Minutes, goals, assists and saves per player; tap a row to correct it. */
 @Composable
-private fun SeasonStatsCard(stats: List<be.matchreview.app.domain.PlayerSeasonStats>) {
+private fun SeasonStatsCard(
+    stats: List<be.matchreview.app.domain.PlayerSeasonStats>,
+    onEdit: (be.matchreview.app.domain.PlayerSeasonStats) -> Unit
+) {
     val fewestMinutes = stats.minOfOrNull { it.wholeMinutes } ?: 0L
     Card(Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text("Season stats", style = MaterialTheme.typography.titleMedium)
+        Column(Modifier.padding(vertical = 10.dp)) {
             Text(
-                "Played and live matches. Players with the fewest minutes are marked so playing time can be shared fairly.",
-                style = MaterialTheme.typography.bodySmall
+                "Season stats",
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.padding(horizontal = 14.dp)
             )
-            Row(Modifier.fillMaxWidth()) {
+            Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 4.dp)) {
                 Text("Player", Modifier.weight(1f), style = MaterialTheme.typography.labelMedium)
                 listOf("M", "Min", "G", "A", "S").forEach {
                     Text(
@@ -1009,11 +1025,19 @@ private fun SeasonStatsCard(stats: List<be.matchreview.app.domain.PlayerSeasonSt
             HorizontalDivider()
             stats.forEach { row ->
                 val fewest = stats.size > 1 && row.wholeMinutes == fewestMinutes
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .clickable { onEdit(row) }
+                        .heightIn(min = 44.dp)
+                        .padding(horizontal = 14.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
                     Text(
                         listOfNotNull(
                             row.player.shirtNumber.takeIf { it > 0 }?.let { "#$it" },
-                            row.player.name
+                            row.player.name,
+                            "✎".takeIf { row.isCorrected }
                         ).joinToString(" "),
                         Modifier.weight(1f),
                         maxLines = 1,
@@ -1032,11 +1056,69 @@ private fun SeasonStatsCard(stats: List<be.matchreview.app.domain.PlayerSeasonSt
                 }
             }
             Text(
-                "M matches • Min minutes • G goals • A assists • S saves",
-                style = MaterialTheme.typography.labelSmall
+                "M matches • Min minutes • G goals • A assists • S saves • ✎ corrected",
+                style = MaterialTheme.typography.labelSmall,
+                modifier = Modifier.padding(horizontal = 14.dp, vertical = 4.dp)
             )
         }
     }
+}
+
+/** Lets the coach correct a player's season totals; the app keeps adding tracked matches on top. */
+@Composable
+private fun PlayerStatsDialog(
+    stats: be.matchreview.app.domain.PlayerSeasonStats,
+    onDismiss: () -> Unit,
+    onSave: (be.matchreview.app.domain.StatLine) -> Unit,
+    onReset: () -> Unit
+) {
+    val total = stats.total
+    var matches by remember(stats.player.id) { mutableStateOf(total.matches.toString()) }
+    var minutes by remember(stats.player.id) { mutableStateOf(total.minutes.toString()) }
+    var goals by remember(stats.player.id) { mutableStateOf(total.goals.toString()) }
+    var assists by remember(stats.player.id) { mutableStateOf(total.assists.toString()) }
+    var saves by remember(stats.player.id) { mutableStateOf(total.saves.toString()) }
+    fun digits(value: String) = value.filter(Char::isDigit).take(4)
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stats.player.name) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Field(matches, { matches = digits(it) }, "Matches", Modifier.weight(1f))
+                    Field(minutes, { minutes = digits(it) }, "Minutes", Modifier.weight(1f))
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Field(goals, { goals = digits(it) }, "Goals", Modifier.weight(1f))
+                    Field(assists, { assists = digits(it) }, "Assists", Modifier.weight(1f))
+                    Field(saves, { saves = digits(it) }, "Saves", Modifier.weight(1f))
+                }
+                Text(
+                    "Tracked: ${stats.tracked.matches} M • ${stats.tracked.minutes} min • " +
+                        "${stats.tracked.goals} G • ${stats.tracked.assists} A • ${stats.tracked.saves} S",
+                    style = MaterialTheme.typography.bodySmall
+                )
+                if (stats.isCorrected) {
+                    TextButton(onClick = onReset) { Text("Reset to tracked") }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = {
+                onSave(
+                    be.matchreview.app.domain.StatLine(
+                        matches = matches.toIntOrNull() ?: total.matches,
+                        minutes = minutes.toLongOrNull() ?: total.minutes,
+                        goals = goals.toIntOrNull() ?: total.goals,
+                        assists = assists.toIntOrNull() ?: total.assists,
+                        saves = saves.toIntOrNull() ?: total.saves
+                    )
+                )
+            }) { Text("Save") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
+    )
 }
 
 @Composable

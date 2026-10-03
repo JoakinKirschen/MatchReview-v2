@@ -21,7 +21,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         PlayerParticipation::class,
         RecordingSegment::class
     ],
-    version = 5,
+    version = 6,
     exportSchema = true
 )
 @TypeConverters(DatabaseConverters::class)
@@ -29,7 +29,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun matchDao(): MatchDao
 
     companion object {
-        const val DATABASE_VERSION = 5
+        const val DATABASE_VERSION = 6
 
         val MIGRATION_1_2 = object : Migration(1, 2) {
             override fun migrate(db: SupportSQLiteDatabase) {
@@ -185,7 +185,15 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
-        val ALL_MIGRATIONS = arrayOf(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
+        val MIGRATION_5_6 = object : Migration(5, 6) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                listOf("Matches", "Minutes", "Goals", "Assists", "Saves").forEach {
+                    db.execSQL("ALTER TABLE players ADD COLUMN stat${it}Adjustment INTEGER NOT NULL DEFAULT 0")
+                }
+            }
+        }
+
+        val ALL_MIGRATIONS = arrayOf(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
 
         fun create(context: Context): AppDatabase =
             Room.databaseBuilder(

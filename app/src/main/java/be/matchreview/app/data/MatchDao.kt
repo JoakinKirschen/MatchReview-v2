@@ -32,6 +32,22 @@ interface MatchDao {
     @Update suspend fun updatePlayer(player: Player)
     @Delete suspend fun deletePlayer(player: Player)
 
+    @Query("""
+        UPDATE players
+        SET statMatchesAdjustment = :matches, statMinutesAdjustment = :minutes,
+            statGoalsAdjustment = :goals, statAssistsAdjustment = :assists,
+            statSavesAdjustment = :saves
+        WHERE id = :playerId
+    """)
+    suspend fun updateStatAdjustments(
+        playerId: Long,
+        matches: Int,
+        minutes: Int,
+        goals: Int,
+        assists: Int,
+        saves: Int
+    )
+
     @Query("UPDATE players SET archived = 1 WHERE id = :playerId")
     suspend fun markPlayerArchived(playerId: Long)
 
