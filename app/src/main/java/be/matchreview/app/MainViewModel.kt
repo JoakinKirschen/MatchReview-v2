@@ -15,6 +15,9 @@ import be.matchreview.app.domain.SubstitutionDraftCodec
 import be.matchreview.app.domain.MatchFormat
 import be.matchreview.app.domain.MatchFormatMemory
 import be.matchreview.app.domain.PlayerSeasonStatsRules
+import be.matchreview.app.domain.PlayerSeasonStats
+import be.matchreview.app.domain.StatAdjustments
+import be.matchreview.app.domain.StatLine
 import be.matchreview.app.domain.BackupReminderRules
 import be.matchreview.app.ui.ThemeMode
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -207,6 +210,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             repository.updatePlayer(player)
             done()
         }
+    }
+
+    /** Saves corrected season totals for a player; null restores the tracked numbers. */
+    fun correctSeasonStats(stats: PlayerSeasonStats, desired: StatLine?) = viewModelScope.launch {
+        repository.setStatAdjustments(
+            stats.player.id,
+            desired?.let { PlayerSeasonStatsRules.adjustmentsFor(stats.tracked, it) }
+                ?: StatAdjustments(0, 0, 0, 0, 0)
+        )
     }
 
     fun archivePlayer(player: Player, done: () -> Unit = {}) =

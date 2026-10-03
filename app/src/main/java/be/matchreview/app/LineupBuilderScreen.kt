@@ -511,27 +511,32 @@ internal fun PitchView(
 
         placements.forEach { placement ->
             val player = playersById[placement.playerId] ?: return@forEach
-            PlayerMarker(
-                player = player,
-                role = placement.role,
-                dragging = draggingPlayerId == player.id,
-                subtitle = subtitleFor(player.id),
-                highlighted = highlightedPlayerId == player.id,
-                onClick = { onPlayerClick(player.id) },
-                onNudge = { dx, dy -> onNudge(player.id, dx, dy) },
-                onDragStart = { pointer -> onDragStart(player.id, pointer) },
-                onDragMove = onDragMove,
-                onDragEnd = { pointer -> onDragEnd(player.id, pointer) },
-                onDragCancel = onDragCancel,
-                modifier = Modifier
-                    .offset {
-                        IntOffset(
-                            (placement.normalizedX * widthPx - markerPx / 2).roundToInt(),
-                            (placement.normalizedY * heightPx - markerPx / 2).roundToInt()
-                        )
-                    }
-                    .testTag(LineupTestTags.pitchPlayer(player.id))
-            )
+            // Keyed by player, not list position: when another player leaves the pitch the
+            // list shifts, and a positional slot would hand this marker (and its running drag
+            // gesture) to a different player, cancelling the drag mid-way.
+            key(player.id) {
+                PlayerMarker(
+                    player = player,
+                    role = placement.role,
+                    dragging = draggingPlayerId == player.id,
+                    subtitle = subtitleFor(player.id),
+                    highlighted = highlightedPlayerId == player.id,
+                    onClick = { onPlayerClick(player.id) },
+                    onNudge = { dx, dy -> onNudge(player.id, dx, dy) },
+                    onDragStart = { pointer -> onDragStart(player.id, pointer) },
+                    onDragMove = onDragMove,
+                    onDragEnd = { pointer -> onDragEnd(player.id, pointer) },
+                    onDragCancel = onDragCancel,
+                    modifier = Modifier
+                        .offset {
+                            IntOffset(
+                                (placement.normalizedX * widthPx - markerPx / 2).roundToInt(),
+                                (placement.normalizedY * heightPx - markerPx / 2).roundToInt()
+                            )
+                        }
+                        .testTag(LineupTestTags.pitchPlayer(player.id))
+                )
+            }
         }
 
         if (isDropTarget) {

@@ -10,6 +10,8 @@ import be.matchreview.app.domain.GoalSummaryRules
 import be.matchreview.app.domain.PeriodTimeRules
 import be.matchreview.app.domain.PlayerSeasonStatsRules
 import be.matchreview.app.domain.PlayingTimeRules
+import be.matchreview.app.domain.StatAdjustments
+import be.matchreview.app.domain.StatLine
 import org.junit.Assert.*
 import org.junit.Test
 
@@ -88,5 +90,24 @@ class MatchInsightsRulesTest {
         assertTrue(BackupReminderRules.isDue(lastBackupEpochMs = null, lastFinishedMatchEpochMs = 5))
         assertTrue(BackupReminderRules.isDue(lastBackupEpochMs = 4, lastFinishedMatchEpochMs = 5))
         assertFalse(BackupReminderRules.isDue(lastBackupEpochMs = 6, lastFinishedMatchEpochMs = 5))
+    }
+
+    @Test
+    fun coachCorrectionsAreAddedOnTopOfTrackedStats() {
+        val tracked = StatLine(matches = 2, minutes = 40, goals = 1, assists = 0, saves = 0)
+        // The coach adds a match that was not tracked: 3 matches, 60 minutes, 2 goals.
+        val adjustments = PlayerSeasonStatsRules.adjustmentsFor(tracked, StatLine(3, 60, 2, 0, 0))
+        assertEquals(StatAdjustments(1, 20, 1, 0, 0), adjustments)
+
+        val corrected = sam.copy(
+            statMatchesAdjustment = adjustments.matches,
+            statMinutesAdjustment = adjustments.minutes,
+            statGoalsAdjustment = adjustments.goals
+        )
+        // A later tracked match keeps counting on top of the correction.
+        val laterTracked = tracked.copy(matches = 3, minutes = 70)
+        assertEquals(StatLine(4, 90, 2, 0, 0), PlayerSeasonStatsRules.withCorrections(laterTracked, corrected))
+        // Totals never go below zero.
+        assertEquals(0, PlayerSeasonStatsRules.withCorrections(tracked, sam.copy(statGoalsAdjustment = -5)).goals)
     }
 }

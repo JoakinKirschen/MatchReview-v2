@@ -2,6 +2,7 @@ package be.matchreview.app.data
 
 import be.matchreview.app.domain.FormationSlot
 import be.matchreview.app.domain.LineupSwapRules
+import be.matchreview.app.domain.StatAdjustments
 
 class MatchRepository(private val dao: MatchDao) {
     val teams = dao.observeTeams()
@@ -146,6 +147,16 @@ class MatchRepository(private val dao: MatchDao) {
             notes = player.notes.trim()
         )
     )
+
+    suspend fun setStatAdjustments(playerId: Long, adjustments: StatAdjustments) =
+        dao.updateStatAdjustments(
+            playerId,
+            adjustments.matches,
+            adjustments.minutes,
+            adjustments.goals,
+            adjustments.assists,
+            adjustments.saves
+        )
 
     suspend fun archivePlayer(player: Player) = dao.archivePlayer(player.id)
 

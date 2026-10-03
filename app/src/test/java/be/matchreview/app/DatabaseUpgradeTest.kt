@@ -77,6 +77,8 @@ class DatabaseUpgradeTest {
                 assertNull(dao.getEventOnce(1)!!.goalX)
                 assertNull(dao.getEventOnce(1)!!.lineupSnapshot)
                 assertNull(dao.observeTeams().first().single().logoPng)
+                // Version 6 stat corrections start at zero.
+                assertEquals(0, dao.observeAllPlayers().first().single().statMinutesAdjustment)
             }
         } finally {
             database.close()

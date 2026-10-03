@@ -43,7 +43,13 @@ data class Player(
     val position: String = "",
     val preferredFoot: String = "",
     val notes: String = "",
-    @ColumnInfo(defaultValue = "0") val archived: Boolean = false
+    @ColumnInfo(defaultValue = "0") val archived: Boolean = false,
+    /** Coach corrections added on top of the tracked season stats (for example untracked matches). */
+    @ColumnInfo(defaultValue = "0") val statMatchesAdjustment: Int = 0,
+    @ColumnInfo(defaultValue = "0") val statMinutesAdjustment: Int = 0,
+    @ColumnInfo(defaultValue = "0") val statGoalsAdjustment: Int = 0,
+    @ColumnInfo(defaultValue = "0") val statAssistsAdjustment: Int = 0,
+    @ColumnInfo(defaultValue = "0") val statSavesAdjustment: Int = 0
 )
 
 @Entity(

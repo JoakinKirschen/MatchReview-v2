@@ -23,7 +23,7 @@ Current release: `versionCode = 7`, `versionName = 1.5.0`.
 Increase the Room database version only when the database schema changes. Add and test
 an explicit migration; do not use destructive fallback for production data.
 
-Current Room database version: `5`.
+Current Room database version: `6`.
 
 ## Backup format
 
