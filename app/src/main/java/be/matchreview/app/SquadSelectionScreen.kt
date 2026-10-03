@@ -1,5 +1,6 @@
 package be.matchreview.app
 
+import be.matchreview.app.ui.AppCard
 import be.matchreview.app.ui.AppButton
 import be.matchreview.app.ui.AppOutlinedButton
 import be.matchreview.app.ui.AppTonalButton
@@ -208,7 +209,7 @@ private fun SquadPlayerCard(
 ) {
     var statusMenu by remember { mutableStateOf(false) }
     val selectable = availability == AvailabilityStatus.AVAILABLE
-    Card(
+    AppCard(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(enabled = selectable) { onSelectedChanged(!selected) },

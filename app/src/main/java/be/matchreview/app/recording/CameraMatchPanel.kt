@@ -1,8 +1,5 @@
 package be.matchreview.app.recording
 
-import be.matchreview.app.ui.AppButton
-import be.matchreview.app.ui.AppOutlinedButton
-import be.matchreview.app.ui.AppTonalButton
 import android.Manifest
 import android.content.Context
 import android.content.Intent
@@ -64,10 +61,6 @@ fun CameraMatchPanel(
     matchId: Long,
     matchClockMs: Long,
     recordings: List<RecordingSegment>,
-    quickActionsEnabled: Boolean,
-    onOurGoal: () -> Unit,
-    onOpponentGoal: () -> Unit,
-    onSubstitution: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -323,14 +316,6 @@ fun CameraMatchPanel(
                 )
                 // Keeps the record button centred.
                 Spacer(Modifier.size(48.dp))
-            }
-        }
-
-        if (quickActionsEnabled) {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                AppButton(onClick = onOurGoal, modifier = Modifier.weight(1f)) { Text("Our goal", maxLines = 1) }
-                AppTonalButton(onClick = onSubstitution, modifier = Modifier.weight(1f)) { Text("Substitute", maxLines = 1) }
-                AppOutlinedButton(onClick = onOpponentGoal, modifier = Modifier.weight(1f)) { Text("Their goal", maxLines = 1) }
             }
         }
 

@@ -1,5 +1,6 @@
 package be.matchreview.app.ui
 
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.heightIn
@@ -7,7 +8,11 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonColors
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardColors
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
@@ -76,5 +81,20 @@ fun AppOutlinedButton(
     shape = AppButtons.Shape,
     colors = colors,
     contentPadding = contentPadding,
+    content = content
+)
+
+/** Cards are white (the lightest surface) on the light grey background, in every theme. */
+@Composable
+fun AppCard(
+    modifier: Modifier = Modifier,
+    colors: CardColors = CardDefaults.cardColors(
+        containerColor = MaterialTheme.colorScheme.surfaceContainerHighest
+    ),
+    content: @Composable ColumnScope.() -> Unit
+) = Card(
+    modifier = modifier,
+    shape = MaterialTheme.shapes.medium,
+    colors = colors,
     content = content
 )

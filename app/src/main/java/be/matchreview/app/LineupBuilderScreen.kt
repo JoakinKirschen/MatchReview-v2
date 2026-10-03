@@ -475,6 +475,10 @@ internal fun PitchView(
             // list shifts, and a positional slot would hand this marker (and its running drag
             // gesture) to a different player, cancelling the drag mid-way.
             key(player.id) {
+                // Name and minutes hang below the badge; keep the whole marker on the grass.
+                val markerHeightPx = with(density) {
+                    (if (subtitleFor(player.id) != null) 80.dp else 64.dp).toPx()
+                }
                 PlayerMarker(
                     player = player,
                     role = placement.role,
@@ -490,8 +494,10 @@ internal fun PitchView(
                     modifier = Modifier
                         .offset {
                             IntOffset(
-                                (placement.normalizedX * widthPx - markerPx / 2).roundToInt(),
-                                (placement.normalizedY * heightPx - markerPx / 2).roundToInt()
+                                (placement.normalizedX * widthPx - markerPx / 2)
+                                    .coerceIn(0f, (widthPx - markerPx).coerceAtLeast(0f)).roundToInt(),
+                                (placement.normalizedY * heightPx - markerPx / 2)
+                                    .coerceIn(0f, (heightPx - markerHeightPx).coerceAtLeast(0f)).roundToInt()
                             )
                         }
                         .testTag(LineupTestTags.pitchPlayer(player.id))
@@ -520,8 +526,37 @@ internal object PitchColors {
     val dropTarget = Brush.verticalGradient(listOf(Color(0xFF8BCB56), Color(0xFF69B442), Color(0xFF55A23A)))
 }
 
+/**
+ * Pitch markings. [horizontal] lays the pitch on its side (goals left and right), which
+ * fills wide spaces such as timeline cards.
+ */
 @Composable
-internal fun PitchLines(modifier: Modifier = Modifier) {
+internal fun PitchLines(modifier: Modifier = Modifier, horizontal: Boolean = false) {
+    if (horizontal) {
+        Canvas(modifier) {
+            val line = Color.White.copy(alpha = 0.72f)
+            val stroke = 3f
+            drawRect(line, style = Stroke(stroke))
+            drawLine(line, Offset(size.width / 2, 0f), Offset(size.width / 2, size.height), stroke, StrokeCap.Round)
+            drawCircle(line, radius = size.height * 0.13f, center = center, style = Stroke(stroke))
+            drawCircle(line, radius = 5f, center = center)
+            val boxDepth = size.width * 0.16f
+            val boxWidth = size.height * 0.58f
+            drawRect(
+                line,
+                topLeft = Offset(0f, (size.height - boxWidth) / 2),
+                size = androidx.compose.ui.geometry.Size(boxDepth, boxWidth),
+                style = Stroke(stroke)
+            )
+            drawRect(
+                line,
+                topLeft = Offset(size.width - boxDepth, (size.height - boxWidth) / 2),
+                size = androidx.compose.ui.geometry.Size(boxDepth, boxWidth),
+                style = Stroke(stroke)
+            )
+        }
+        return
+    }
     Canvas(modifier) {
         val line = Color.White.copy(alpha = 0.72f)
         val stroke = 3f
@@ -702,8 +737,10 @@ internal fun BenchPanel(
                 )
             } else {
                 LazyRow(
+                    modifier = Modifier.fillMaxWidth(),
                     contentPadding = PaddingValues(horizontal = 8.dp, vertical = 3.dp),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    // A short bench sits centred under the pitch instead of hugging the left edge.
+                    horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally)
                 ) {
                     items(players, key = { it.id }) { player ->
                         Column(

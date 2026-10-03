@@ -2,6 +2,7 @@
 
 package be.matchreview.app
 
+import be.matchreview.app.ui.AppCard
 import be.matchreview.app.ui.AppButtons
 import be.matchreview.app.ui.AppButton
 import be.matchreview.app.ui.AppOutlinedButton
@@ -631,7 +632,7 @@ fun LiveMatchScreen(
                 LazyRow(
                     modifier = Modifier.fillMaxWidth().height(64.dp),
                     contentPadding = PaddingValues(horizontal = 2.dp),
-                    horizontalArrangement = Arrangement.spacedBy(5.dp)
+                    horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally)
                 ) {
                     val leastPlayedBench = PlayingTimeRules.leastPlayed(eligibleBenchIds, ::playedMs)
                     items(
@@ -666,10 +667,6 @@ fun LiveMatchScreen(
                     matchId = matchId,
                     matchClockMs = matchTimeMs,
                     recordings = recordings,
-                    quickActionsEnabled = liveActionsEnabled,
-                    onOurGoal = ::recordQuickGoal,
-                    onOpponentGoal = { showOpponentGoalConfirmation = true },
-                    onSubstitution = ::enterSubstitutionMode,
                     modifier = Modifier.weight(1f).fillMaxWidth()
                 )
             } else {
@@ -1421,7 +1418,7 @@ private fun TimelineEventCard(
     onDeleteEvent: (MatchEvent) -> Unit
 ) {
     val scoring = event.type == "OUR_GOAL" || event.type == "OPPONENT_GOAL"
-    Card(Modifier.fillMaxWidth()) {
+    AppCard(Modifier.fillMaxWidth()) {
         Row(
             Modifier.fillMaxWidth().padding(12.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -1502,7 +1499,7 @@ private fun LiveScoreboard(
     periodTimeMs: Long,
     plannedPeriodMs: Long
 ) {
-    Card(
+    AppCard(
         colors = CardDefaults.cardColors(containerColor = Color(0xFFE3263F)),
         modifier = Modifier
             .fillMaxWidth()
@@ -1580,8 +1577,9 @@ private fun LivePitch(
         placements.forEach { placement ->
             val player = playersById[placement.playerId] ?: return@forEach
             val marker = 58.dp
-            val x = (maxWidth * placement.normalizedX.coerceIn(0.06f, 0.94f) - marker / 2)
-            val y = (maxHeight * placement.normalizedY.coerceIn(0.06f, 0.94f) - marker / 2)
+            // Name and minutes hang below the badge; keep the whole marker on the grass.
+            val x = (maxWidth * placement.normalizedX - marker / 2).coerceIn(0.dp, (maxWidth - marker).coerceAtLeast(0.dp))
+            val y = (maxHeight * placement.normalizedY - 21.dp).coerceIn(0.dp, (maxHeight - 76.dp).coerceAtLeast(0.dp))
             Column(
                 Modifier.offset(x = x, y = y).width(marker).clickable { onPlayerClick(player.id) },
                 horizontalAlignment = Alignment.CenterHorizontally
