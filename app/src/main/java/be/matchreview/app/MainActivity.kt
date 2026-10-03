@@ -54,6 +54,7 @@ import be.matchreview.app.domain.MatchSetupRules
 import be.matchreview.app.domain.VideoEventRules
 import be.matchreview.app.domain.GoalMouthGeometry
 import be.matchreview.app.domain.GoalSummaryRules
+import be.matchreview.app.domain.StartingLineupRules
 import be.matchreview.app.domain.TimelineGrouping
 import be.matchreview.app.domain.TimelineItem
 import androidx.activity.result.PickVisualMediaRequest
@@ -1538,6 +1539,7 @@ private fun ReviewScreen(matchId: Long, vm: MainViewModel, nav: NavHostControlle
     val match by vm.match(matchId).collectAsStateWithLifecycle(initialValue = null)
     val events by vm.events(matchId).collectAsStateWithLifecycle(initialValue = emptyList())
     val participations by vm.participations(matchId).collectAsStateWithLifecycle(initialValue = emptyList())
+    val lineup by vm.lineup(matchId).collectAsStateWithLifecycle(initialValue = emptyList())
     val recordings by vm.recordings(matchId).collectAsStateWithLifecycle(initialValue = emptyList())
     val allPlayers by vm.players.collectAsStateWithLifecycle()
     val teams by vm.teams.collectAsStateWithLifecycle()
@@ -1584,7 +1586,7 @@ private fun ReviewScreen(matchId: Long, vm: MainViewModel, nav: NavHostControlle
         }
     }
     fun writeSummaryPdf(output: java.io.OutputStream) = MatchPdfExporter.write(
-        output, current, team, teamPlayers, events, participations, recordings
+        output, current, team, teamPlayers, events, participations, recordings, lineup
     )
     val pdfExportLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("application/pdf")
@@ -1790,7 +1792,8 @@ private fun ReviewScreen(matchId: Long, vm: MainViewModel, nav: NavHostControlle
         val playersById = allPlayers.associateBy { it.id }
         // Live events use match time while imported-video tags use the video position, so
         // they are listed separately instead of being sorted into one misleading order.
-        val (videoTags, matchEvents) = events
+        val (videoTags, matchEvents) = StartingLineupRules
+            .withStartingLineup(current.id, events, participations, lineup)
             .sortedWith(compareBy<MatchEvent> { it.timestampMs }.thenBy { it.id })
             .partition(VideoEventRules::isImportedVideoTag)
         listOf(
@@ -2106,6 +2109,7 @@ private fun reviewEventLabel(type: String): String = when (type) {
     "OUR_GOAL" -> "Our goal"
     "OPPONENT_GOAL" -> "Opponent goal"
     "SUBSTITUTION" -> "Substitution"
+    "KICK_OFF" -> "Kick-off"
     "KEEPER_SAVE" -> "Keeper save"
     "POSITION_CHANGE" -> "Positions changed"
     "PLAYER_ON" -> "Player on"

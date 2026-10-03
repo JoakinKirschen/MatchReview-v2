@@ -4,6 +4,7 @@ import androidx.room.*
 import be.matchreview.app.domain.LineupSnapshot
 import be.matchreview.app.domain.MatchClockCalculator
 import be.matchreview.app.domain.PracticeMatchRules
+import be.matchreview.app.domain.StartingLineupRules
 import be.matchreview.app.domain.SubstitutionPlanRules
 import be.matchreview.app.domain.VideoEventRules
 import kotlinx.coroutines.flow.Flow
@@ -463,6 +464,19 @@ interface MatchDao {
                     entryReason = ParticipationReason.STARTER
                 )
             })
+            // Keep a picture of the starting positions; later lineup changes only store
+            // the situation after each change.
+            insertEventWithVideoLink(
+                MatchEvent(
+                    matchId = matchId,
+                    timestampMs = match.accumulatedMatchTimeMs,
+                    type = StartingLineupRules.KICK_OFF,
+                    note = "Starting lineup",
+                    periodNumber = 1,
+                    occurredAtEpochMs = wallClockNowMs,
+                    lineupSnapshot = LineupSnapshot.encode(starters)
+                )
+            )
         }
         updateMatch(
             match.copy(

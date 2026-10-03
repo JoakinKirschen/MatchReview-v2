@@ -640,7 +640,7 @@ private fun PlayerMarker(
         )
         Text(
             player.name.substringBefore(" ").uppercase(),
-            color = Color.White,
+            color = Color.Black,
             style = MaterialTheme.typography.labelSmall,
             fontWeight = FontWeight.Bold,
             maxLines = 1,

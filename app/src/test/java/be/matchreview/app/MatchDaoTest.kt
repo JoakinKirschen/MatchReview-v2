@@ -16,6 +16,7 @@ import be.matchreview.app.data.Player
 import be.matchreview.app.data.PlayerMatchState
 import be.matchreview.app.data.RecordingStatus
 import be.matchreview.app.data.Team
+import be.matchreview.app.domain.LineupSnapshot
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.After
@@ -287,7 +288,8 @@ class MatchDaoTest {
             }
         }
         assertFalse(dao.applySubstitutionRound(fixture.matchId, plan, KICK_OFF_MONOTONIC + 2_000, KICK_OFF_WALL + 2_000))
-        assertTrue(dao.observeEvents(fixture.matchId).first().isEmpty())
+        // Only the kick-off lineup picture exists; the rejected rounds wrote nothing.
+        assertEquals(listOf("KICK_OFF"), dao.observeEvents(fixture.matchId).first().map { it.type })
     }
 
     @Test
@@ -322,6 +324,17 @@ class MatchDaoTest {
         assertFalse(match.isHome)
         assertEquals(MatchStatus.LIVE, match.status)
         assertEquals("iVBORw0KGgo=", dao.observeTeams().first().single().logoPng)
+    }
+
+    @Test
+    fun kickOffStoresTheStartingLineup() = runBlocking {
+        val fixture = liveMatch()
+
+        val kickOff = dao.observeEvents(fixture.matchId).first().single { it.type == "KICK_OFF" }
+
+        assertEquals(0L, kickOff.timestampMs)
+        val starters = LineupSnapshot.decode(kickOff.lineupSnapshot).map { it.playerId }
+        assertEquals(fixture.playerIds.take(2).sorted(), starters.sorted())
     }
 
     private companion object {

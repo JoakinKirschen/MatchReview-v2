@@ -96,7 +96,7 @@ fun LineupSnapshotPitch(
                 }
                 Text(
                     player?.name?.substringBefore(" ") ?: "",
-                    color = Color.White,
+                    color = Color.Black,
                     fontSize = 9.sp,
                     fontWeight = FontWeight.Bold,
                     maxLines = 1,
@@ -117,6 +117,7 @@ fun LineupChangeCard(
 ) {
     fun names(ids: List<Long>) = ids.joinToString(", ") { playersById[it]?.name ?: "Player" }
     val title = when {
+        change.isStartingLineup -> if (change.isApproximate) "Starting lineup (approximate)" else "Starting lineup"
         change.events.all { it.type == "POSITION_CHANGE" } -> "Positions changed"
         change.events.any { it.type == "DISMISSAL" } -> "Dismissal"
         change.events.any { it.type == "INJURY_OFF" } -> "Injury"
@@ -127,7 +128,7 @@ fun LineupChangeCard(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Surface(shape = CircleShape, color = MaterialTheme.colorScheme.primaryContainer) {
                     Text(
-                        MatchClockCalculator.formatClock(change.timestampMs),
+                        if (change.isStartingLineup) "Start" else MatchClockCalculator.formatClock(change.timestampMs),
                         modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
                         fontWeight = FontWeight.Bold
                     )

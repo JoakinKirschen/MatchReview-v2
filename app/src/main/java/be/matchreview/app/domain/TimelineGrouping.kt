@@ -26,6 +26,9 @@ sealed interface TimelineItem {
                 }
             }
 
+        val isStartingLineup: Boolean get() = events.all { it.type == StartingLineupRules.KICK_OFF }
+        val isApproximate: Boolean get() = events.any(StartingLineupRules::isReconstructed)
+
         val outgoingPlayerIds: List<Long>
             get() = events.mapNotNull {
                 when (it.type) {
@@ -37,7 +40,10 @@ sealed interface TimelineItem {
 }
 
 object TimelineGrouping {
-    val LINEUP_TYPES = setOf("SUBSTITUTION", "PLAYER_ON", "PLAYER_OFF", "INJURY_OFF", "DISMISSAL", "POSITION_CHANGE")
+    val LINEUP_TYPES = setOf(
+        "SUBSTITUTION", "PLAYER_ON", "PLAYER_OFF", "INJURY_OFF", "DISMISSAL", "POSITION_CHANGE",
+        StartingLineupRules.KICK_OFF
+    )
 
     /**
      * Groups adjacent lineup events that share a time and a lineup picture. Events

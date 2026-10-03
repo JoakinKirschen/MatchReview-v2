@@ -8,6 +8,7 @@ import android.graphics.RectF
 import android.graphics.Typeface
 import android.graphics.pdf.PdfDocument
 import be.matchreview.app.data.GameMatch
+import be.matchreview.app.data.MatchLineupPlacement
 import be.matchreview.app.data.MatchEvent
 import be.matchreview.app.data.Player
 import be.matchreview.app.data.PlayerParticipation
@@ -15,6 +16,7 @@ import be.matchreview.app.data.RecordingSegment
 import be.matchreview.app.data.Team
 import be.matchreview.app.domain.GoalMouthGeometry
 import be.matchreview.app.domain.GoalSummaryRules
+import be.matchreview.app.domain.StartingLineupRules
 import be.matchreview.app.domain.TimelineGrouping
 import be.matchreview.app.domain.TimelineItem
 import be.matchreview.app.domain.VideoEventRules
@@ -49,7 +51,8 @@ object MatchPdfExporter {
         players: List<Player>,
         events: List<MatchEvent>,
         participations: List<PlayerParticipation>,
-        recordings: List<RecordingSegment>
+        recordings: List<RecordingSegment>,
+        lineup: List<MatchLineupPlacement> = emptyList()
     ) {
         val document = PdfDocument()
         try {
@@ -90,6 +93,9 @@ object MatchPdfExporter {
             val (videoTags, matchEvents) = events
                 .sortedWith(compareBy<MatchEvent> { it.timestampMs }.thenBy { it.id })
                 .partition(VideoEventRules::isImportedVideoTag)
+            // The lineup pictures start with the starting lineup, rebuilt for older matches.
+            val lineupEvents = StartingLineupRules.withStartingLineup(match.id, matchEvents, participations, lineup)
+                .sortedWith(compareBy<MatchEvent> { it.timestampMs }.thenBy { it.id })
             writer.section("Timeline")
             if (matchEvents.isEmpty()) {
                 writer.text("No events recorded.")
@@ -130,10 +136,10 @@ object MatchPdfExporter {
             }
 
             val lineupChanges = TimelineGrouping
-                .group(matchEvents)
+                .group(lineupEvents)
                 .filterIsInstance<TimelineItem.LineupChange>()
             if (lineupChanges.isNotEmpty()) {
-                writer.section("Lineup changes")
+                writer.section("Starting lineup and changes")
                 writer.text("Highlighted players came on at that moment.", small = true)
                 lineupChanges.chunked(3).forEach { row ->
                     writer.block(PITCH_HEIGHT + 30f) { canvas, top ->
@@ -230,7 +236,12 @@ object MatchPdfExporter {
             typeface = Typeface.create(Typeface.SANS_SERIF, Typeface.BOLD)
         }
         val pitch = RectF(left, top + 14f, left + PITCH_WIDTH, top + 14f + PITCH_HEIGHT)
-        canvas.drawText(formatTime(change.timestampMs), left, top + 10f, caption)
+        val label = when {
+            change.isStartingLineup && change.isApproximate -> "Start (approximate)"
+            change.isStartingLineup -> "Start"
+            else -> formatTime(change.timestampMs)
+        }
+        canvas.drawText(label, left, top + 10f, caption)
         canvas.drawRect(pitch, grass)
         canvas.drawRect(pitch, line)
         canvas.drawLine(pitch.left, pitch.centerY(), pitch.right, pitch.centerY(), line)
@@ -249,7 +260,7 @@ object MatchPdfExporter {
             typeface = Typeface.create(Typeface.SANS_SERIF, Typeface.BOLD)
         }
         val name = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.WHITE
+            color = Color.BLACK
             textSize = 6.5f
             textAlign = Paint.Align.CENTER
         }

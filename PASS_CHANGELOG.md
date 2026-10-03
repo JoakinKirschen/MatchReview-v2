@@ -1,7 +1,7 @@
 # MatchReview Pass Changelog
 
 This is the **single source of truth** for implementation-pass notes and change tracking.
-It consolidates implementation notes for Passes 1–56.
+It consolidates implementation notes for Passes 1–57.
 
 ## How to maintain this file
 
@@ -37,7 +37,7 @@ For every future development pass:
 
 | Pass | Status | Planned change | Version impact |
 |---:|---|---|---|
-| 57 | Not scheduled | Add the next approved recommendation here | To be determined |
+| 58 | Not scheduled | Add the next approved recommendation here | To be determined |
 
 ## Documentation changes
 
@@ -124,6 +124,7 @@ For every future development pass:
 | 54 | [Lineup fixes, remembered format, logo files, PDF sharing](#pass-54-lineup-fixes-remembered-format-logo-files-pdf-sharing) |
 | 55 | [Coaching insights and sideline comfort](#pass-55-coaching-insights-and-sideline-comfort) |
 | 56 | [Editable season stats and a cleaner dashboard](#pass-56-editable-season-stats-and-a-cleaner-dashboard) |
+| 57 | [Starting lineup in the review](#pass-57-starting-lineup-in-the-review) |
 
 ---
 
@@ -1344,3 +1345,17 @@ begin.
 
 ### Tests and verification
 - Added correction tests to `MatchInsightsRulesTest`; the database upgrade test covers migration 5 → 6.
+
+## Pass 57 — Starting lineup in the review
+
+**Status:** Completed  
+**Completed:** 2026-10-03  
+**Version impact:** App only (`KICK_OFF` event type)
+
+### Added or changed
+- Kick-off stores a `KICK_OFF` event with the starting positions. The live and review timelines and the PDF ("Starting lineup and changes") show this picture before the lineup changes.
+- Matches played before this pass get an approximate starting lineup: substitutes of the first lineup change are put back to the player they replaced, other starters keep their last known spot. It is labelled "approximate".
+- Player names on all pitch drawings (lineup screens, live pitch, review pictures and PDF) are black instead of white.
+
+### Tests and verification
+- Added `StartingLineupRulesTest` and a DAO test for the kick-off picture.

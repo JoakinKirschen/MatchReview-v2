@@ -1285,6 +1285,7 @@ private fun eventTitle(event: MatchEvent, playersById: Map<Long, Player>): Strin
     "INJURY_OFF" -> "Injury • ${playersById[event.playerId]?.name ?: "Player"} off"
     "PLAYER_OFF" -> "${playersById[event.playerId]?.name ?: "Player"} off"
     "POSITION_CHANGE" -> "Positions changed"
+    "KICK_OFF" -> "Kick-off"
     else -> event.type.lowercase().replace('_', ' ').replaceFirstChar { it.uppercase() }
 }
 
@@ -1430,7 +1431,8 @@ private fun LivePitch(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     style = MaterialTheme.typography.labelSmall,
-                    fontWeight = FontWeight.Bold
+                    fontWeight = FontWeight.Bold,
+                    color = Color.Black
                 )
                 Text(
                     "${MatchClockCalculator.displayedWholeMinutes(minutesFor(player.id))}'",
