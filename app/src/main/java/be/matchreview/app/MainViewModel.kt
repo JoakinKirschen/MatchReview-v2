@@ -15,6 +15,7 @@ import be.matchreview.app.domain.SubstitutionDraftCodec
 import be.matchreview.app.domain.MatchFormat
 import be.matchreview.app.domain.MatchFormatMemory
 import be.matchreview.app.domain.PlayerSeasonStatsRules
+import be.matchreview.app.domain.SeasonReportRules
 import be.matchreview.app.domain.PlayerSeasonStats
 import be.matchreview.app.domain.StatAdjustments
 import be.matchreview.app.domain.StatLine
@@ -27,6 +28,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import be.matchreview.app.backup.AutoBackupState
 
 class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val matchReviewApplication = application as MatchReviewApplication
@@ -56,6 +58,32 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val backupDue: StateFlow<Boolean> = combine(_lastBackupEpochMs, _lastFinishedMatchEpochMs) { backup, finished ->
         BackupReminderRules.isDue(backup, finished)
     }.stateIn(viewModelScope, SharingStarted.Eagerly, false)
+
+    private val autoBackup = matchReviewApplication.autoBackup
+    val autoBackupState: StateFlow<AutoBackupState> = autoBackup.state
+
+    init {
+        // An automatic backup counts as a backup for the status card and the reminder.
+        viewModelScope.launch {
+            autoBackup.state.collect { state ->
+                val completedAt = state.lastSuccessEpochMs ?: return@collect
+                if (completedAt > (_lastBackupEpochMs.value ?: 0L)) {
+                    _lastBackupEpochMs.value = completedAt
+                    _lastBackupIncludedMedia.value = backupPreferences.getBoolean("last_success_included_media", false)
+                }
+            }
+        }
+    }
+
+    /** Returns an error message, or null when automatic backups are on. */
+    fun enableAutoBackup(folder: Uri, password: String, includeMedia: Boolean): String? =
+        autoBackup.enable(folder, password, includeMedia)
+
+    fun setAutoBackupIncludesMedia(includeMedia: Boolean) = autoBackup.setIncludeMedia(includeMedia)
+
+    fun disableAutoBackup() = autoBackup.disable()
+
+    fun runAutoBackupNow() = autoBackup.runInBackground()
 
     private val displayPreferences =
         application.getSharedPreferences("matchreview_display", 0)
@@ -147,6 +175,21 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             players,
             matches.filter { it.teamId == teamId },
             participations,
+            events
+        )
+    }
+
+    /** Record, results and player lines for the season report export. */
+    fun seasonReport(teamId: Long) = combine(
+        repository.teams,
+        repository.matches,
+        seasonStats(teamId),
+        repository.teamStatEvents(teamId)
+    ) { teams, matches, stats, events ->
+        SeasonReportRules.build(
+            teams.firstOrNull { it.id == teamId }?.name ?: "Team",
+            matches.filter { it.teamId == teamId },
+            stats,
             events
         )
     }
@@ -385,6 +428,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         repository.finishLiveMatch(matchId, SystemClock.elapsedRealtime(), finishedAt)
         backupPreferences.edit().putLong("last_finished_match_epoch_ms", finishedAt).apply()
         _lastFinishedMatchEpochMs.value = finishedAt
+        autoBackup.runInBackground()
         done()
     }
 

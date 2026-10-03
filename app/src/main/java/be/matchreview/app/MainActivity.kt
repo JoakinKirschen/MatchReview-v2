@@ -45,6 +45,7 @@ import be.matchreview.app.ui.ThemeMode
 import be.matchreview.app.domain.MatchActions
 import be.matchreview.app.domain.MatchExportFormatter
 import be.matchreview.app.domain.MatchStatsRules
+import be.matchreview.app.domain.SeasonReportRules
 import be.matchreview.app.domain.ExportPrivacyOptions
 import be.matchreview.app.domain.MediaIntegrityRules
 import be.matchreview.app.domain.MatchIntegrityRules
@@ -52,6 +53,7 @@ import be.matchreview.app.domain.SeasonSummaryRules
 import be.matchreview.app.domain.PracticeMatchRules
 import be.matchreview.app.domain.MatchFormatMemory
 import be.matchreview.app.domain.BackupEstimate
+import be.matchreview.app.backup.AutoBackupRules
 import be.matchreview.app.domain.MatchSetupRules
 import be.matchreview.app.domain.VideoEventRules
 import be.matchreview.app.domain.GoalMouthGeometry
@@ -199,6 +201,7 @@ private fun DashboardScreen(vm: MainViewModel, nav: NavHostController) {
     val activeMatch by vm.activeMatch.collectAsStateWithLifecycle()
     val lastBackupEpochMs by vm.lastBackupEpochMs.collectAsStateWithLifecycle()
     val backupDue by vm.backupDue.collectAsStateWithLifecycle()
+    val autoBackup by vm.autoBackupState.collectAsStateWithLifecycle()
     var summaryTeamId by rememberSaveable { mutableLongStateOf(0L) }
     LaunchedEffect(teams) {
         if (teams.isNotEmpty() && summaryTeamId != 0L && teams.none { it.id == summaryTeamId }) summaryTeamId = 0L
@@ -272,6 +275,8 @@ private fun DashboardScreen(vm: MainViewModel, nav: NavHostController) {
         }
         item {
             val backupText = when {
+                autoBackup.running -> "Automatic backup running…"
+                autoBackup.lastError != null -> "Automatic backup failed: ${autoBackup.lastError}"
                 backupDue -> "A match finished since your last backup. Back up now to keep it safe."
                 else -> lastBackupEpochMs?.let {
                     "Last backup ${SimpleDateFormat("dd MMM, HH:mm", Locale.getDefault()).format(Date(it))}"
@@ -367,6 +372,19 @@ private fun BackupRestoreScreen(vm: MainViewModel) {
         ActivityResultContracts.CreateDocument("application/octet-stream")
     ) { uri ->
         if (uri != null) vm.exportBackup(uri, exportPassword, includeMedia)
+    }
+    val autoBackup by vm.autoBackupState.collectAsStateWithLifecycle()
+    var autoBackupMessage by remember { mutableStateOf<String?>(null) }
+    val autoBackupFolderLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocumentTree()
+    ) { folder ->
+        if (folder != null) {
+            autoBackupMessage = vm.enableAutoBackup(folder, exportPassword, includeMedia)
+            if (autoBackupMessage == null) {
+                exportPassword = ""
+                exportPasswordAgain = ""
+            }
+        }
     }
     val restoreLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument()
@@ -509,6 +527,67 @@ private fun BackupRestoreScreen(vm: MainViewModel) {
                         color = MaterialTheme.colorScheme.error,
                         style = MaterialTheme.typography.bodySmall
                     )
+                }
+            }
+        }
+
+        Card(Modifier.fillMaxWidth()) {
+            Column(
+                Modifier.padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Text("Automatic backup", style = MaterialTheme.typography.titleLarge)
+                if (!autoBackup.enabled) {
+                    Text(
+                        "Pick a folder once, for example on Google Drive. After every finished match an " +
+                            "encrypted backup is saved there with the password above. The newest " +
+                            "${AutoBackupRules.KEEP} automatic backups are kept."
+                    )
+                    Button(
+                        onClick = { autoBackupFolderLauncher.launch(null) },
+                        enabled = passwordValid && !working,
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                    ) { Text("Choose folder and turn on") }
+                    if (!passwordValid) {
+                        Text("Enter and repeat a password above first.", style = MaterialTheme.typography.bodySmall)
+                    }
+                } else {
+                    Text("Folder: ${autoBackup.folderName ?: "chosen folder"}")
+                    Text(
+                        when {
+                            autoBackup.running -> "Backing up…"
+                            autoBackup.lastError != null -> "Last automatic backup failed: ${autoBackup.lastError}"
+                            autoBackup.lastSuccessEpochMs != null -> "Last automatic backup " +
+                                SimpleDateFormat("dd MMM yyyy, HH:mm", Locale.getDefault()).format(Date(autoBackup.lastSuccessEpochMs!!))
+                            else -> "Runs after the next finished match."
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (autoBackup.lastError != null && !autoBackup.running) {
+                            MaterialTheme.colorScheme.error
+                        } else LocalContentColor.current
+                    )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Checkbox(
+                            checked = autoBackup.includeMedia,
+                            onCheckedChange = vm::setAutoBackupIncludesMedia
+                        )
+                        Text("Include video files", Modifier.weight(1f))
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        FilledTonalButton(
+                            onClick = vm::runAutoBackupNow,
+                            enabled = !autoBackup.running,
+                            modifier = Modifier.weight(1f).heightIn(min = 48.dp)
+                        ) { Text("Back up now") }
+                        OutlinedButton(
+                            onClick = vm::disableAutoBackup,
+                            enabled = !autoBackup.running,
+                            modifier = Modifier.heightIn(min = 48.dp)
+                        ) { Text("Turn off") }
+                    }
+                }
+                autoBackupMessage?.let {
+                    Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
                 }
             }
         }
@@ -742,6 +821,9 @@ private fun TeamScreen(teamId: Long, vm: MainViewModel, nav: NavHostController) 
     val players by vm.playersForTeam(teamId).collectAsStateWithLifecycle(initialValue = emptyList())
     val seasonStatsFlow = remember(teamId) { vm.seasonStats(teamId) }
     val seasonStats by seasonStatsFlow.collectAsStateWithLifecycle(initialValue = emptyList())
+    val seasonReportFlow = remember(teamId) { vm.seasonReport(teamId) }
+    val seasonReport by seasonReportFlow.collectAsStateWithLifecycle(initialValue = null)
+    var reportMessage by remember { mutableStateOf<String?>(null) }
     var showAdd by remember { mutableStateOf(false) }
     var editingPlayer by remember { mutableStateOf<Player?>(null) }
     var editingStats by remember { mutableStateOf<be.matchreview.app.domain.PlayerSeasonStats?>(null) }
@@ -765,6 +847,36 @@ private fun TeamScreen(teamId: Long, vm: MainViewModel, nav: NavHostController) 
         }
     }
     val logoFilePicker = rememberLauncherForActivityResult(OpenImageInDownloads(), ::importLogo)
+    val reportPdfLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/pdf")
+    ) { uri ->
+        val report = seasonReport
+        if (uri == null || report == null) return@rememberLauncherForActivityResult
+        reportMessage = runCatching {
+            context.contentResolver.openOutputStream(uri, "w")!!.use {
+                SeasonReportPdfExporter.write(it, report, team)
+            }
+            if (ExternalApps.open(context, uri, "application/pdf")) null
+            else "Season report saved. Install a PDF viewer to open it."
+        }.getOrElse { "Season report failed: ${it.message ?: "unknown error"}" }
+    }
+    fun shareSeasonReport(pdf: Boolean) {
+        val report = seasonReport ?: return
+        reportMessage = runCatching {
+            if (pdf) {
+                ExternalApps.shareNewFile(
+                    context, SeasonReportRules.fileName(report.teamName, "pdf"), "application/pdf",
+                    "Season report ${report.teamName}"
+                ) { SeasonReportPdfExporter.write(it, report, team) }
+            } else {
+                ExternalApps.shareNewFile(
+                    context, SeasonReportRules.fileName(report.teamName, "csv"), "text/csv",
+                    "Season report ${report.teamName}"
+                ) { it.write(SeasonReportRules.toCsv(report).toByteArray()) }
+            }
+            null
+        }.getOrElse { "Sharing failed: ${it.message ?: "unknown error"}" }
+    }
     val logoPhotoPicker = rememberLauncherForActivityResult(
         ActivityResultContracts.PickVisualMedia(),
         ::importLogo
@@ -863,6 +975,39 @@ private fun TeamScreen(teamId: Long, vm: MainViewModel, nav: NavHostController) 
         }
         if (seasonStats.isNotEmpty()) {
             item { SeasonStatsCard(seasonStats, onEdit = { editingStats = it }) }
+            item {
+                Card(Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text("Season report", style = MaterialTheme.typography.titleMedium)
+                        seasonReport?.summary?.let {
+                            Text(
+                                "${it.played} played • ${it.won}W ${it.drawn}D ${it.lost}L • goals ${it.goalsFor}–${it.goalsAgainst}",
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                        }
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            FilledTonalButton(
+                                onClick = {
+                                    seasonReport?.let { reportPdfLauncher.launch(SeasonReportRules.fileName(it.teamName, "pdf")) }
+                                },
+                                enabled = seasonReport != null,
+                                modifier = Modifier.weight(1f).heightIn(min = 48.dp)
+                            ) { Text("Download PDF") }
+                            OutlinedButton(
+                                onClick = { shareSeasonReport(pdf = true) },
+                                enabled = seasonReport != null,
+                                modifier = Modifier.heightIn(min = 48.dp)
+                            ) { Text("Share") }
+                            OutlinedButton(
+                                onClick = { shareSeasonReport(pdf = false) },
+                                enabled = seasonReport != null,
+                                modifier = Modifier.heightIn(min = 48.dp)
+                            ) { Text("CSV") }
+                        }
+                        reportMessage?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+                    }
+                }
+            }
         }
         if (players.isEmpty()) item { EmptyCard("No players yet.") }
         items(players, key = { it.id }) { player ->

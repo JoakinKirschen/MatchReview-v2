@@ -315,7 +315,8 @@ interface MatchDao {
     @Query("""
         SELECT e.* FROM events e
         INNER JOIN matches m ON m.id = e.matchId
-        WHERE m.teamId = :teamId AND e.type IN ('OUR_GOAL', 'KEEPER_SAVE')
+        WHERE m.teamId = :teamId
+          AND e.type IN ('OUR_GOAL', 'KEEPER_SAVE', 'YELLOW_CARD', 'RED_CARD', 'DISMISSAL')
     """)
     fun observeTeamStatEvents(teamId: Long): Flow<List<MatchEvent>>
 
