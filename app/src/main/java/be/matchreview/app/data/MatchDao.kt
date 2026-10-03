@@ -1,7 +1,9 @@
 package be.matchreview.app.data
 
 import androidx.room.*
+import be.matchreview.app.domain.LineupSnapshot
 import be.matchreview.app.domain.MatchClockCalculator
+import be.matchreview.app.domain.SubstitutionPlanRules
 import be.matchreview.app.domain.VideoEventRules
 import kotlinx.coroutines.flow.Flow
 
@@ -12,6 +14,9 @@ interface MatchDao {
 
     @Insert suspend fun insertTeam(team: Team): Long
     @Delete suspend fun deleteTeam(team: Team)
+
+    @Query("UPDATE teams SET logoPng = :logoPng WHERE id = :teamId")
+    suspend fun updateTeamLogo(teamId: Long, logoPng: String?)
 
     @Query("SELECT * FROM players WHERE teamId = :teamId AND archived = 0 ORDER BY shirtNumber, name")
     fun observePlayers(teamId: Long): Flow<List<Player>>
@@ -85,6 +90,21 @@ interface MatchDao {
     @Query("UPDATE matches SET teamRating = :rating, reviewNotes = :notes WHERE id = :matchId")
     suspend fun updateReview(matchId: Long, rating: Int, notes: String)
 
+    @Query("""
+        UPDATE matches
+        SET opponent = :opponent, matchDate = :matchDate, venue = :venue,
+            competition = :competition, isHome = :isHome
+        WHERE id = :matchId
+    """)
+    suspend fun updateMatchDetails(
+        matchId: Long,
+        opponent: String,
+        matchDate: String,
+        venue: String,
+        competition: String,
+        isHome: Boolean
+    )
+
     @Query("UPDATE matches SET videoUri = :videoUri WHERE id = :matchId")
     suspend fun setVideoUri(matchId: Long, videoUri: String?)
 
@@ -116,6 +136,9 @@ interface MatchDao {
         ORDER BY timestampMs DESC, id DESC
     """)
     suspend fun getScoringEventsNewestFirst(matchId: Long): List<MatchEvent>
+
+    @Query("UPDATE events SET goalX = :goalX, goalY = :goalY WHERE id = :eventId")
+    suspend fun setGoalPlacement(eventId: Long, goalX: Float?, goalY: Float?)
 
     @Query("DELETE FROM events WHERE id = :eventId")
     suspend fun deleteEventById(eventId: Long)
@@ -689,9 +712,113 @@ interface MatchDao {
                 type = "SUBSTITUTION",
                 note = "Player off / player on",
                 periodNumber = match.currentPeriod,
-                occurredAtEpochMs = wallClockNowMs
+                occurredAtEpochMs = wallClockNowMs,
+                lineupSnapshot = LineupSnapshot.encode(getLineupOnce(matchId))
             )
         )
+    }
+
+    /**
+     * Applies a whole substitution-mode round at one match time: everyone who left the
+     * pitch stops, every substitute starts, moved players keep playing in their new
+     * place, and one event per change carries a picture of the resulting lineup.
+     * Returns false when the plan is not allowed and nothing was changed.
+     */
+    @Transaction
+    suspend fun applySubstitutionRound(
+        matchId: Long,
+        planned: List<MatchLineupPlacement>,
+        monotonicNowMs: Long,
+        wallClockNowMs: Long
+    ): Boolean {
+        val match = getMatchOnce(matchId) ?: return false
+        if (match.status !in listOf(MatchStatus.LIVE, MatchStatus.PAUSED, MatchStatus.PERIOD_ENDED)) return false
+        val original = getLineupOnce(matchId)
+        val originalIds = original.mapTo(mutableSetOf()) { it.playerId }
+        val plan = SubstitutionPlanRules.planOf(planned.filter { it.matchId == matchId && it.playerId in originalIds })
+        if (plan.values.count { it.onPitch } > match.playersOnPitch) return false
+        val changes = SubstitutionPlanRules.changes(original, plan)
+        if (changes.isEmpty) return true
+
+        val squad = getMatchSquadOnce(matchId).associateBy { it.playerId }
+        val blocked = setOf(PlayerMatchState.UNAVAILABLE, PlayerMatchState.REMOVED, PlayerMatchState.DISMISSED)
+        if (changes.incoming.any { id -> squad[id]?.let { !it.selected || it.state in blocked } != false }) {
+            return false
+        }
+
+        val currentTime = liveActionTime(match, getOpenClockSegment(matchId), monotonicNowMs, wallClockNowMs)
+        val countsMinutes = match.status in listOf(MatchStatus.LIVE, MatchStatus.PAUSED)
+        val period = if (countsMinutes) getPeriodOnce(matchId, match.currentPeriod) ?: return false else null
+
+        changes.outgoing.forEach { playerId ->
+            if (countsMinutes) {
+                getOpenParticipationForPlayer(matchId, playerId)?.let {
+                    updateParticipation(
+                        it.copy(endMatchTimeMs = currentTime, exitReason = ParticipationReason.SUBSTITUTION)
+                    )
+                }
+            }
+            squad[playerId]?.let {
+                upsertMatchSquadPlayer(
+                    it.copy(
+                        state = if (match.rollingSubstitutions) PlayerMatchState.BENCH
+                        else PlayerMatchState.REMOVED
+                    )
+                )
+            }
+        }
+        changes.incoming.forEach { playerId ->
+            if (period != null && getOpenParticipationForPlayer(matchId, playerId) == null) {
+                insertParticipation(
+                    PlayerParticipation(
+                        matchId = matchId,
+                        periodId = period.id,
+                        playerId = playerId,
+                        startMatchTimeMs = currentTime,
+                        entryReason = ParticipationReason.SUBSTITUTION
+                    )
+                )
+            }
+            squad[playerId]?.let { upsertMatchSquadPlayer(it.copy(state = PlayerMatchState.ON_PITCH)) }
+        }
+        val changedIds = changes.outgoing + changes.incoming + changes.moved
+        upsertLineupPlacements(plan.values.filter { it.playerId in changedIds }.map {
+            it.copy(
+                normalizedX = it.normalizedX.coerceIn(0f, 1f),
+                normalizedY = it.normalizedY.coerceIn(0f, 1f)
+            )
+        })
+
+        val snapshot = LineupSnapshot.encode(plan.values.toList())
+        fun lineupEvent(type: String, playerId: Long?, relatedPlayerId: Long?, note: String) =
+            MatchEvent(
+                matchId = matchId,
+                playerId = playerId,
+                relatedPlayerId = relatedPlayerId,
+                timestampMs = currentTime,
+                type = type,
+                note = note,
+                periodNumber = match.currentPeriod,
+                occurredAtEpochMs = wallClockNowMs,
+                lineupSnapshot = snapshot
+            )
+        if (changes.hasSubstitutions) {
+            SubstitutionPlanRules.pairs(original, plan).forEach { pair ->
+                insertEventWithVideoLink(
+                    when {
+                        pair.outgoingId != null && pair.incomingId != null ->
+                            lineupEvent("SUBSTITUTION", pair.outgoingId, pair.incomingId, "Player off / player on")
+                        pair.outgoingId != null ->
+                            lineupEvent("PLAYER_OFF", pair.outgoingId, null, "Moved to the bench")
+                        else ->
+                            lineupEvent("PLAYER_ON", pair.incomingId, null, "Entered without a replacement")
+                    }
+                )
+            }
+        } else {
+            insertEventWithVideoLink(lineupEvent("POSITION_CHANGE", null, null, "Positions changed"))
+        }
+        return true
     }
 
     @Transaction
@@ -744,7 +871,8 @@ interface MatchDao {
                 },
                 note = reason.name.lowercase().replace('_', ' '),
                 periodNumber = match.currentPeriod,
-                occurredAtEpochMs = wallClockNowMs
+                occurredAtEpochMs = wallClockNowMs,
+                lineupSnapshot = LineupSnapshot.encode(getLineupOnce(matchId))
             )
         )
     }
@@ -807,7 +935,8 @@ interface MatchDao {
                 type = "PLAYER_ON",
                 note = "Entered without a replacement",
                 periodNumber = match.currentPeriod,
-                occurredAtEpochMs = wallClockNowMs
+                occurredAtEpochMs = wallClockNowMs,
+                lineupSnapshot = LineupSnapshot.encode(getLineupOnce(matchId))
             )
         )
     }
@@ -857,21 +986,21 @@ interface MatchDao {
         matchId: Long,
         monotonicNowMs: Long,
         wallClockNowMs: Long
-    ) {
-        val match = getMatchOnce(matchId) ?: return
+    ): Long? {
+        val match = getMatchOnce(matchId) ?: return null
         if (match.status !in listOf(
                 MatchStatus.LIVE,
                 MatchStatus.PAUSED,
                 MatchStatus.PERIOD_ENDED
             )
-        ) return
+        ) return null
         val currentTime = liveActionTime(
             match,
             getOpenClockSegment(matchId),
             monotonicNowMs,
             wallClockNowMs
         )
-        insertEventWithVideoLink(
+        val eventId = insertEventWithVideoLink(
             MatchEvent(
                 matchId = matchId,
                 timestampMs = currentTime,
@@ -881,6 +1010,40 @@ interface MatchDao {
             )
         )
         refreshScoreFromEvents(matchId)
+        return eventId
+    }
+
+    @Transaction
+    suspend fun recordKeeperSave(
+        matchId: Long,
+        keeperPlayerId: Long?,
+        monotonicNowMs: Long,
+        wallClockNowMs: Long
+    ): Long? {
+        val match = getMatchOnce(matchId) ?: return null
+        if (match.status !in listOf(
+                MatchStatus.LIVE,
+                MatchStatus.PAUSED,
+                MatchStatus.PERIOD_ENDED
+            )
+        ) return null
+        val currentTime = liveActionTime(
+            match,
+            getOpenClockSegment(matchId),
+            monotonicNowMs,
+            wallClockNowMs
+        )
+        return insertEventWithVideoLink(
+            MatchEvent(
+                matchId = matchId,
+                playerId = keeperPlayerId,
+                timestampMs = currentTime,
+                type = "KEEPER_SAVE",
+                sentiment = "Positive",
+                periodNumber = match.currentPeriod,
+                occurredAtEpochMs = wallClockNowMs
+            )
+        )
     }
 
     @Transaction

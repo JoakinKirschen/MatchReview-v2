@@ -143,6 +143,25 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             done()
         }
 
+    fun setTeamLogo(teamId: Long, logoPng: String?) =
+        viewModelScope.launch { repository.setTeamLogo(teamId, logoPng) }
+
+    fun updateMatchDetails(
+        matchId: Long,
+        opponent: String,
+        date: String,
+        venue: String,
+        competition: String,
+        home: Boolean,
+        done: () -> Unit = {}
+    ) {
+        if (opponent.isBlank() || date.isBlank()) return
+        viewModelScope.launch {
+            repository.updateMatchDetails(matchId, opponent, date, venue, competition, home)
+            done()
+        }
+    }
+
     fun createPracticeMatch(done: (Long) -> Unit) =
         viewModelScope.launch { done(repository.createPracticeMatch()) }
 
@@ -223,6 +242,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun deleteEvent(event: MatchEvent) =
         viewModelScope.launch { repository.deleteEvent(event) }
 
+    fun deleteEventById(eventId: Long) =
+        viewModelScope.launch { repository.deleteEventById(eventId) }
+
     fun kickOffMatch(matchId: Long) = viewModelScope.launch {
         val now = SystemClock.elapsedRealtime()
         if (!liveCommandGate.accept("$matchId:kickoff", now)) return@launch
@@ -269,6 +291,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             )
         }
 
+    /** Applies a substitution-mode round; [done] receives false when it was rejected. */
+    fun applySubstitutionRound(
+        matchId: Long,
+        planned: List<MatchLineupPlacement>,
+        done: (Boolean) -> Unit = {}
+    ) = viewModelScope.launch {
+        val now = SystemClock.elapsedRealtime()
+        if (!liveCommandGate.accept("$matchId:sub-round", now)) return@launch
+        done(repository.applySubstitutionRound(matchId, planned, now, System.currentTimeMillis()))
+    }
+
     fun removePlayerFromPitch(
         matchId: Long,
         playerId: Long,
@@ -312,11 +345,21 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         done(eventId)
     }
 
-    fun recordOpponentGoal(matchId: Long) = viewModelScope.launch {
+    fun recordOpponentGoal(matchId: Long, done: (Long?) -> Unit = {}) = viewModelScope.launch {
         val now = SystemClock.elapsedRealtime()
         if (!liveCommandGate.accept("$matchId:opponent-goal", now)) return@launch
-        repository.recordOpponentGoal(matchId, now, System.currentTimeMillis())
+        done(repository.recordOpponentGoal(matchId, now, System.currentTimeMillis()))
     }
+
+    fun recordKeeperSave(matchId: Long, keeperPlayerId: Long?, done: (Long?) -> Unit = {}) =
+        viewModelScope.launch {
+            val now = SystemClock.elapsedRealtime()
+            if (!liveCommandGate.accept("$matchId:save:${keeperPlayerId ?: 0}", now)) return@launch
+            done(repository.recordKeeperSave(matchId, keeperPlayerId, now, System.currentTimeMillis()))
+        }
+
+    fun setGoalPlacement(eventId: Long, goalX: Float?, goalY: Float?) =
+        viewModelScope.launch { repository.setGoalPlacement(eventId, goalX, goalY) }
 
     fun updateOurGoal(
         eventId: Long,

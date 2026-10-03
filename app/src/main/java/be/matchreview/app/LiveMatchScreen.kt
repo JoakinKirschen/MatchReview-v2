@@ -1,3 +1,5 @@
+@file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+
 package be.matchreview.app
 
 import android.os.SystemClock
@@ -36,6 +38,10 @@ import be.matchreview.app.domain.MatchClockCalculator
 import be.matchreview.app.domain.LiveAnnouncementRules
 import be.matchreview.app.domain.ClockRecoveryRules
 import be.matchreview.app.domain.ClockRecoveryConfidence
+import be.matchreview.app.domain.GoalMouthGeometry
+import be.matchreview.app.domain.GoalkeeperRules
+import be.matchreview.app.domain.TimelineGrouping
+import be.matchreview.app.domain.TimelineItem
 import be.matchreview.app.recording.CameraMatchPanel
 import be.matchreview.app.recording.CameraRecordingController
 import be.matchreview.app.recording.CameraRecordingState
@@ -46,6 +52,16 @@ import kotlinx.coroutines.launch
 
 private enum class LiveTab { MATCH, CAMERA, TIMELINE }
 
+/** A goal that was just recorded or is being edited, waiting for its position in the goal. */
+private data class GoalPlacementRequest(
+    val eventId: Long,
+    val title: String,
+    val initialX: Float? = null,
+    val initialY: Float? = null,
+    /** Quick goals offer to add the scorer once the position step is finished. */
+    val offerScorerDetails: Boolean = false
+)
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun LiveMatchScreen(
@@ -55,6 +71,7 @@ fun LiveMatchScreen(
 ) {
     val match by vm.match(matchId).collectAsStateWithLifecycle(initialValue = null)
     val players by vm.players.collectAsStateWithLifecycle()
+    val teams by vm.teams.collectAsStateWithLifecycle()
     val placements by vm.lineup(matchId).collectAsStateWithLifecycle(initialValue = emptyList())
     val squad by vm.squad(matchId).collectAsStateWithLifecycle(initialValue = emptyList())
     val periods by vm.periods(matchId).collectAsStateWithLifecycle(initialValue = emptyList())
@@ -114,6 +131,7 @@ fun LiveMatchScreen(
     val periodTimeMs = (matchTimeMs - (activePeriod?.startMatchTimeMs ?: matchTimeMs))
         .coerceAtLeast(0L)
 
+    val teamName = teams.firstOrNull { it.id == current.teamId }?.name ?: "Our team"
     val playersById = players.associateBy { it.id }
     val squadById = squad.associateBy { it.playerId }
     val onPitch = placements.filter { it.onPitch }
@@ -162,6 +180,9 @@ fun LiveMatchScreen(
     var pendingQuickGoalEditId by remember { mutableStateOf<Long?>(null) }
     var showEndPeriodConfirmation by remember { mutableStateOf(false) }
     var liveActionLocked by remember { mutableStateOf(false) }
+    var substitutionMode by remember { mutableStateOf(false) }
+    var goalPlacement by remember { mutableStateOf<GoalPlacementRequest?>(null) }
+    var keeperChoiceOpen by remember { mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
 
@@ -175,24 +196,60 @@ fun LiveMatchScreen(
         }
     }
 
+    fun offerQuickGoalDetails(eventId: Long) {
+        scope.launch {
+            val result = snackbarHostState.showSnackbar(
+                message = "Goal recorded — scorer not assigned",
+                actionLabel = "Add details",
+                withDismissAction = true,
+                duration = SnackbarDuration.Long
+            )
+            if (result == SnackbarResult.ActionPerformed) {
+                pendingQuickGoalEditId = eventId
+            }
+        }
+    }
+
     fun recordQuickGoal() {
         runLiveAction {
             vm.recordOurGoal(matchId, null, null) { eventId ->
                 if (eventId != null) {
+                    goalPlacement = GoalPlacementRequest(
+                        eventId = eventId,
+                        title = "Where did $teamName score?",
+                        offerScorerDetails = true
+                    )
+                }
+            }
+        }
+    }
+
+    fun recordSave(keeperId: Long?) {
+        runLiveAction {
+            vm.recordKeeperSave(matchId, keeperId) { eventId ->
+                if (eventId != null) {
                     scope.launch {
                         val result = snackbarHostState.showSnackbar(
-                            message = "Goal recorded — scorer not assigned",
-                            actionLabel = "Add details",
-                            withDismissAction = true,
-                            duration = SnackbarDuration.Long
+                            message = "Save • ${playersById[keeperId]?.name ?: "keeper not assigned"}",
+                            actionLabel = "Undo",
+                            withDismissAction = true
                         )
-                        if (result == SnackbarResult.ActionPerformed) {
-                            pendingQuickGoalEditId = eventId
-                        }
+                        if (result == SnackbarResult.ActionPerformed) vm.deleteEventById(eventId)
                     }
                 }
             }
         }
+    }
+
+    fun startSave() {
+        val keepers = GoalkeeperRules.onPitchGoalkeepers(onPitch, squad, players)
+        if (keepers.size == 1) recordSave(keepers.single()) else keeperChoiceOpen = true
+    }
+
+    fun enterSubstitutionMode() {
+        selectedPlayerId = null
+        tab = LiveTab.MATCH
+        substitutionMode = true
     }
 
     LaunchedEffect(events, pendingQuickGoalEditId) {
@@ -204,6 +261,9 @@ fun LiveMatchScreen(
     }
 
     BackHandler { showLeaveConfirmation = true }
+    // Registered later, so it wins while substitution mode is open.
+    BackHandler(enabled = substitutionMode) { substitutionMode = false }
+    LaunchedEffect(liveActionsEnabled) { if (!liveActionsEnabled) substitutionMode = false }
 
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
@@ -261,6 +321,7 @@ fun LiveMatchScreen(
         ) {
             LiveScoreboard(
                 match = current,
+                teamName = teamName,
                 matchTimeMs = matchTimeMs,
                 periodTimeMs = periodTimeMs
             )
@@ -293,15 +354,28 @@ fun LiveMatchScreen(
                     Button(
                         onClick = ::recordQuickGoal,
                         enabled = !liveActionLocked,
-                        contentPadding = PaddingValues(horizontal = 10.dp),
+                        contentPadding = PaddingValues(horizontal = 6.dp),
                         modifier = Modifier.weight(1f).heightIn(min = 52.dp)
-                    ) { Text(stringResource(R.string.our_goal), maxLines = 1) }
+                    ) { Text(stringResource(R.string.our_goal), maxLines = 1, overflow = TextOverflow.Ellipsis) }
                     OutlinedButton(
                         onClick = { showOpponentGoalConfirmation = true },
                         enabled = !liveActionLocked,
-                        contentPadding = PaddingValues(horizontal = 10.dp),
+                        contentPadding = PaddingValues(horizontal = 6.dp),
                         modifier = Modifier.weight(1f).heightIn(min = 52.dp)
-                    ) { Text(stringResource(R.string.opponent_goal), maxLines = 1) }
+                    ) { Text(stringResource(R.string.opponent_goal), maxLines = 1, overflow = TextOverflow.Ellipsis) }
+                    FilledTonalButton(
+                        onClick = ::startSave,
+                        enabled = !liveActionLocked,
+                        contentPadding = PaddingValues(horizontal = 6.dp),
+                        modifier = Modifier.weight(0.75f).heightIn(min = 52.dp)
+                    ) {
+                        val saves = events.count { it.type == "KEEPER_SAVE" }
+                        Text(
+                            if (saves > 0) "${stringResource(R.string.keeper_save)} $saves"
+                            else stringResource(R.string.keeper_save),
+                            maxLines = 1
+                        )
+                    }
                     OutlinedButton(
                         onClick = {
                             runLiveAction { vm.undoLatestScoreAction(matchId) }
@@ -309,13 +383,35 @@ fun LiveMatchScreen(
                         },
                         enabled = !liveActionLocked &&
                             events.any { it.type == "OUR_GOAL" || it.type == "OPPONENT_GOAL" },
-                        contentPadding = PaddingValues(horizontal = 10.dp),
+                        contentPadding = PaddingValues(horizontal = 6.dp),
                         modifier = Modifier.heightIn(min = 52.dp)
                     ) { Text(stringResource(R.string.undo)) }
                 }
             }
 
-            if (tab == LiveTab.MATCH) {
+            if (tab == LiveTab.MATCH && substitutionMode) {
+                SubstitutionModePanel(
+                    match = current,
+                    livePlacements = placements,
+                    playersById = playersById,
+                    eligibleBenchIds = eligibleBenchIds,
+                    minutesLabel = { "${MatchClockCalculator.displayedWholeMinutes(playedMs(it))}'" },
+                    onMessage = { message -> scope.launch { snackbarHostState.showSnackbar(message) } },
+                    onCancel = { substitutionMode = false },
+                    onConfirm = { plan ->
+                        vm.applySubstitutionRound(matchId, plan) { applied ->
+                            if (applied) substitutionMode = false
+                            scope.launch {
+                                snackbarHostState.showSnackbar(
+                                    if (applied) "Lineup changes saved at ${MatchClockCalculator.formatClock(matchTimeMs)}"
+                                    else "Those changes are not allowed any more. Check the lineup and try again."
+                                )
+                            }
+                        }
+                    },
+                    modifier = Modifier.weight(1f).fillMaxWidth()
+                )
+            } else if (tab == LiveTab.MATCH) {
                 LivePitch(
                     placements = onPitch,
                     playersById = playersById,
@@ -336,14 +432,10 @@ fun LiveMatchScreen(
                         modifier = Modifier.weight(1f)
                     )
                     TextButton(
-                        onClick = {
-                            substitutionOutgoingId = null
-                            substitutionIncomingId = null
-                            substitutionSheetOpen = true
-                        },
-                        enabled = liveActionsEnabled && eligibleBenchIds.isNotEmpty(),
+                        onClick = ::enterSubstitutionMode,
+                        enabled = liveActionsEnabled && placements.isNotEmpty(),
                         contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)
-                    ) { Text("Substitute") }
+                    ) { Text("Substitution mode") }
                 }
 
                 LazyRow(
@@ -380,11 +472,7 @@ fun LiveMatchScreen(
                     quickActionsEnabled = liveActionsEnabled,
                     onOurGoal = ::recordQuickGoal,
                     onOpponentGoal = { showOpponentGoalConfirmation = true },
-                    onSubstitution = {
-                        substitutionOutgoingId = null
-                        substitutionIncomingId = null
-                        substitutionSheetOpen = true
-                    },
+                    onSubstitution = ::enterSubstitutionMode,
                     modifier = Modifier.weight(1f).fillMaxWidth()
                 )
             } else {
@@ -397,6 +485,15 @@ fun LiveMatchScreen(
                     modifier = Modifier.weight(1f),
                     onPlayEvent = { selectedVideoEvent = it },
                     onEditGoal = { editGoal = it },
+                    onEditGoalPosition = { event ->
+                        goalPlacement = GoalPlacementRequest(
+                            eventId = event.id,
+                            title = if (event.type == "OPPONENT_GOAL") "Where did ${current.opponent} score?"
+                            else "Where did $teamName score?",
+                            initialX = event.goalX,
+                            initialY = event.goalY
+                        )
+                    },
                     onDeleteGoal = { pendingGoalDeletion = it }
                 )
             }
@@ -427,6 +524,13 @@ fun LiveMatchScreen(
                         },
                         modifier = Modifier.fillMaxWidth()
                     ) { Text("Record goal") }
+                    OutlinedButton(
+                        onClick = {
+                            selectedPlayerId = null
+                            recordSave(player.id)
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) { Text("Record save") }
                     OutlinedButton(
                         onClick = {
                             selectedPlayerId = null
@@ -498,7 +602,14 @@ fun LiveMatchScreen(
                 pendingGoalScorerId = null
             },
             onSelect = { assistId ->
-                vm.recordOurGoal(matchId, scorerId, assistId)
+                vm.recordOurGoal(matchId, scorerId, assistId) { eventId ->
+                    if (eventId != null) {
+                        goalPlacement = GoalPlacementRequest(
+                            eventId = eventId,
+                            title = "Where did ${playersById[scorerId]?.name ?: teamName} score?"
+                        )
+                    }
+                }
                 goalFlowActive = false
                 pendingGoalScorerId = null
             }
@@ -520,6 +631,47 @@ fun LiveMatchScreen(
             onDelete = {
                 editGoal = null
                 pendingGoalDeletion = event
+            },
+            onEditPosition = {
+                editGoal = null
+                goalPlacement = GoalPlacementRequest(
+                    eventId = event.id,
+                    title = "Where did $teamName score?",
+                    initialX = event.goalX,
+                    initialY = event.goalY
+                )
+            }
+        )
+    }
+
+    goalPlacement?.let { request ->
+        fun close() {
+            goalPlacement = null
+            if (request.offerScorerDetails) offerQuickGoalDetails(request.eventId)
+        }
+        GoalPlacementDialog(
+            title = request.title,
+            initialX = request.initialX,
+            initialY = request.initialY,
+            onSkip = ::close,
+            onSave = { x, y ->
+                vm.setGoalPlacement(request.eventId, x, y)
+                close()
+            }
+        )
+    }
+
+    if (keeperChoiceOpen) {
+        PlayerChoiceSheet(
+            title = "Who made the save?",
+            playerIds = onPitch.map { it.playerId },
+            playersById = playersById,
+            includeNone = true,
+            noneLabel = "Keeper not assigned",
+            onDismiss = { keeperChoiceOpen = false },
+            onSelect = {
+                keeperChoiceOpen = false
+                recordSave(it)
             }
         )
     }
@@ -587,9 +739,17 @@ fun LiveMatchScreen(
                 TextButton(
                     enabled = !liveActionLocked,
                     onClick = {
-                        runLiveAction { vm.recordOpponentGoal(matchId) }
+                        runLiveAction {
+                            vm.recordOpponentGoal(matchId) { eventId ->
+                                if (eventId != null) {
+                                    goalPlacement = GoalPlacementRequest(
+                                        eventId = eventId,
+                                        title = "Where did ${current.opponent} score?"
+                                    )
+                                }
+                            }
+                        }
                         showOpponentGoalConfirmation = false
-                        scope.launch { snackbarHostState.showSnackbar("Opponent goal recorded") }
                     }
                 ) { Text("Add goal") }
             },
@@ -880,7 +1040,8 @@ private fun GoalEditSheet(
     players: List<Player>,
     onDismiss: () -> Unit,
     onSave: (Long?, Long?, Long) -> Unit,
-    onDelete: () -> Unit
+    onDelete: () -> Unit,
+    onEditPosition: () -> Unit
 ) {
     var scorer by remember(event.id) { mutableStateOf(event.playerId) }
     var assist by remember(event.id) { mutableStateOf(event.relatedPlayerId) }
@@ -900,6 +1061,12 @@ private fun GoalEditSheet(
             }
             OutlinedButton(onClick = { choosingAssist = true }, modifier = Modifier.fillMaxWidth()) {
                 Text("Assist: ${byId[assist]?.name ?: "None"}")
+            }
+            OutlinedButton(onClick = onEditPosition, modifier = Modifier.fillMaxWidth()) {
+                Text(
+                    "Position in goal: " +
+                        (GoalMouthGeometry.describe(event.goalX, event.goalY) ?: "not set")
+                )
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedButton(
@@ -1010,6 +1177,7 @@ private fun MatchTimeline(
     modifier: Modifier,
     onPlayEvent: (MatchEvent) -> Unit,
     onEditGoal: (MatchEvent) -> Unit,
+    onEditGoalPosition: (MatchEvent) -> Unit,
     onDeleteGoal: (MatchEvent) -> Unit
 ) {
     if (events.isEmpty()) {
@@ -1018,53 +1186,95 @@ private fun MatchTimeline(
         }
         return
     }
+    val timelineItems = remember(events) { TimelineGrouping.group(events) }
     LazyColumn(
         modifier = modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(8.dp),
         contentPadding = PaddingValues(bottom = 12.dp)
     ) {
-        items(events, key = { it.id }) { event ->
-            val scoring = event.type == "OUR_GOAL" || event.type == "OPPONENT_GOAL"
-            Card(Modifier.fillMaxWidth()) {
-                Row(
-                    Modifier.fillMaxWidth().padding(12.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    Surface(shape = CircleShape, color = MaterialTheme.colorScheme.primaryContainer) {
-                        Text(
-                            MatchClockCalculator.formatClock(event.timestampMs),
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-                    Column(Modifier.weight(1f)) {
-                        Text(eventTitle(event, playersById), fontWeight = FontWeight.Bold)
-                        eventSubtitle(event, playersById)?.let {
-                            Text(it, style = MaterialTheme.typography.bodySmall)
-                        }
-                    }
-                    Column(horizontalAlignment = Alignment.End) {
-                        if (be.matchreview.app.domain.VideoEventRules.isPlayable(event, recordings)) {
-                            FilledTonalButton(
-                                onClick = { onPlayEvent(event) },
-                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
-                            ) { Text("▶ Clip") }
-                            Text(
-                                "+${MatchClockCalculator.formatClock(event.recordingOffsetMs ?: 0L)}",
-                                style = MaterialTheme.typography.labelSmall
-                            )
-                        } else if (event.recordingSegmentId != null) {
-                            Text("Clip saving…", style = MaterialTheme.typography.labelSmall)
-                        }
-                        if (event.type == "OUR_GOAL") {
-                            TextButton(onClick = { onEditGoal(event) }) { Text("Edit") }
-                        }
-                        if (scoring) {
-                            TextButton(onClick = { onDeleteGoal(event) }) {
-                                Text("Delete", color = MaterialTheme.colorScheme.error)
-                            }
-                        }
+        items(timelineItems, key = { it.key }) { item ->
+            when (item) {
+                is TimelineItem.LineupChange -> LineupChangeCard(
+                    change = item,
+                    playersById = playersById,
+                    trailing = { ClipButton(item.events.first(), recordings, onPlayEvent) }
+                )
+                is TimelineItem.Single -> TimelineEventCard(
+                    event = item.event,
+                    playersById = playersById,
+                    recordings = recordings,
+                    onPlayEvent = onPlayEvent,
+                    onEditGoal = onEditGoal,
+                    onEditGoalPosition = onEditGoalPosition,
+                    onDeleteGoal = onDeleteGoal
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ClipButton(
+    event: MatchEvent,
+    recordings: List<RecordingSegment>,
+    onPlayEvent: (MatchEvent) -> Unit
+) {
+    Column(horizontalAlignment = Alignment.End) {
+        if (be.matchreview.app.domain.VideoEventRules.isPlayable(event, recordings)) {
+            FilledTonalButton(
+                onClick = { onPlayEvent(event) },
+                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
+            ) { Text("▶ Clip") }
+            Text(
+                "+${MatchClockCalculator.formatClock(event.recordingOffsetMs ?: 0L)}",
+                style = MaterialTheme.typography.labelSmall
+            )
+        } else if (event.recordingSegmentId != null) {
+            Text("Clip saving…", style = MaterialTheme.typography.labelSmall)
+        }
+    }
+}
+
+@Composable
+private fun TimelineEventCard(
+    event: MatchEvent,
+    playersById: Map<Long, Player>,
+    recordings: List<RecordingSegment>,
+    onPlayEvent: (MatchEvent) -> Unit,
+    onEditGoal: (MatchEvent) -> Unit,
+    onEditGoalPosition: (MatchEvent) -> Unit,
+    onDeleteGoal: (MatchEvent) -> Unit
+) {
+    val scoring = event.type == "OUR_GOAL" || event.type == "OPPONENT_GOAL"
+    Card(Modifier.fillMaxWidth()) {
+        Row(
+            Modifier.fillMaxWidth().padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Surface(shape = CircleShape, color = MaterialTheme.colorScheme.primaryContainer) {
+                Text(
+                    MatchClockCalculator.formatClock(event.timestampMs),
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                    fontWeight = FontWeight.Bold
+                )
+            }
+            Column(Modifier.weight(1f)) {
+                Text(eventTitle(event, playersById), fontWeight = FontWeight.Bold)
+                eventSubtitle(event, playersById)?.let {
+                    Text(it, style = MaterialTheme.typography.bodySmall)
+                }
+            }
+            Column(horizontalAlignment = Alignment.End) {
+                ClipButton(event, recordings, onPlayEvent)
+                if (event.type == "OUR_GOAL") {
+                    TextButton(onClick = { onEditGoal(event) }) { Text("Edit") }
+                } else if (event.type == "OPPONENT_GOAL") {
+                    TextButton(onClick = { onEditGoalPosition(event) }) { Text("Position") }
+                }
+                if (scoring) {
+                    TextButton(onClick = { onDeleteGoal(event) }) {
+                        Text("Delete", color = MaterialTheme.colorScheme.error)
                     }
                 }
             }
@@ -1075,25 +1285,31 @@ private fun MatchTimeline(
 private fun eventTitle(event: MatchEvent, playersById: Map<Long, Player>): String = when (event.type) {
     "OUR_GOAL" -> "Goal • ${playersById[event.playerId]?.name ?: "Unknown scorer"}"
     "OPPONENT_GOAL" -> "Opponent goal"
+    "KEEPER_SAVE" -> "Save • ${playersById[event.playerId]?.name ?: "Keeper"}"
     "SUBSTITUTION" -> "Substitution • ${playersById[event.playerId]?.name ?: "Player"} off"
     "PLAYER_ON" -> "${playersById[event.playerId]?.name ?: "Player"} entered"
     "DISMISSAL" -> "Dismissal • ${playersById[event.playerId]?.name ?: "Player"}"
     "INJURY_OFF" -> "Injury • ${playersById[event.playerId]?.name ?: "Player"} off"
     "PLAYER_OFF" -> "${playersById[event.playerId]?.name ?: "Player"} off"
+    "POSITION_CHANGE" -> "Positions changed"
     else -> event.type.lowercase().replace('_', ' ').replaceFirstChar { it.uppercase() }
 }
 
-private fun eventSubtitle(event: MatchEvent, playersById: Map<Long, Player>): String? = when {
-    event.type == "OUR_GOAL" && event.relatedPlayerId != null ->
-        "Assist: ${playersById[event.relatedPlayerId]?.name ?: "Unknown"}"
-    event.type == "SUBSTITUTION" && event.relatedPlayerId != null ->
-        "${playersById[event.relatedPlayerId]?.name ?: "Player"} on"
-    event.note.isNotBlank() -> event.note
-    else -> null
+private fun eventSubtitle(event: MatchEvent, playersById: Map<Long, Player>): String? {
+    val placement = GoalMouthGeometry.describe(event.goalX, event.goalY)?.let { "Goal position: $it" }
+    val detail = when {
+        event.type == "OUR_GOAL" && event.relatedPlayerId != null ->
+            "Assist: ${playersById[event.relatedPlayerId]?.name ?: "Unknown"}"
+        event.type == "SUBSTITUTION" && event.relatedPlayerId != null ->
+            "${playersById[event.relatedPlayerId]?.name ?: "Player"} on"
+        event.note.isNotBlank() -> event.note
+        else -> null
+    }
+    return listOfNotNull(detail, placement).joinToString(" • ").ifBlank { null }
 }
 
 @Composable
-private fun LiveScoreboard(match: GameMatch, matchTimeMs: Long, periodTimeMs: Long) {
+private fun LiveScoreboard(match: GameMatch, teamName: String, matchTimeMs: Long, periodTimeMs: Long) {
     Card(
         colors = CardDefaults.cardColors(containerColor = Color(0xFFE3263F)),
         modifier = Modifier
@@ -1111,7 +1327,9 @@ private fun LiveScoreboard(match: GameMatch, matchTimeMs: Long, periodTimeMs: Lo
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            ScoreSide("Our team", match.ourScore)
+            // The home side is shown on the left, as on a stadium scoreboard.
+            if (match.isHome) ScoreSide(teamName, match.ourScore)
+            else ScoreSide(match.opponent, match.opponentScore)
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Text(
                     MatchClockCalculator.formatClock(matchTimeMs),
@@ -1127,7 +1345,8 @@ private fun LiveScoreboard(match: GameMatch, matchTimeMs: Long, periodTimeMs: Lo
                     style = MaterialTheme.typography.labelSmall
                 )
             }
-            ScoreSide(match.opponent, match.opponentScore)
+            if (match.isHome) ScoreSide(match.opponent, match.opponentScore)
+            else ScoreSide(teamName, match.ourScore)
         }
     }
 }

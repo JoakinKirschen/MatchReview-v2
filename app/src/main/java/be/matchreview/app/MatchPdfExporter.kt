@@ -1,8 +1,10 @@
 package be.matchreview.app
 
+import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
+import android.graphics.RectF
 import android.graphics.Typeface
 import android.graphics.pdf.PdfDocument
 import be.matchreview.app.data.GameMatch
@@ -10,6 +12,10 @@ import be.matchreview.app.data.MatchEvent
 import be.matchreview.app.data.Player
 import be.matchreview.app.data.PlayerParticipation
 import be.matchreview.app.data.RecordingSegment
+import be.matchreview.app.data.Team
+import be.matchreview.app.domain.GoalMouthGeometry
+import be.matchreview.app.domain.TimelineGrouping
+import be.matchreview.app.domain.TimelineItem
 import java.io.OutputStream
 import java.util.Locale
 import kotlin.math.max
@@ -37,6 +43,7 @@ object MatchPdfExporter {
     fun write(
         output: OutputStream,
         match: GameMatch,
+        team: Team?,
         players: List<Player>,
         events: List<MatchEvent>,
         participations: List<PlayerParticipation>,
@@ -46,10 +53,15 @@ object MatchPdfExporter {
         try {
             val writer = PdfWriter(document)
             val names = players.associate { it.id to it.name }
+            val playersById = players.associateBy { it.id }
+            val teamName = team?.name ?: "Our team"
 
-            writer.heading("MatchReview summary")
+            TeamLogoCodec.decode(team?.logoPng)?.let { writer.logo(it) }
+            writer.heading(
+                if (match.isHome) "$teamName vs ${match.opponent}" else "${match.opponent} vs $teamName"
+            )
             writer.text(
-                "${if (match.isHome) "Home" else "Away"} match vs ${match.opponent}",
+                "${if (match.isHome) "Home" else "Away"} match • match summary",
                 emphasized = true
             )
             writer.text(listOf(match.matchDate, match.competition, match.venue)
@@ -69,7 +81,7 @@ object MatchPdfExporter {
                 "Substitutions",
                 if (match.rollingSubstitutions) "Rolling" else "No re-entry"
             )
-            if (match.teamRating > 0) writer.labelValue("Team rating", "${match.teamRating}/5")
+            if (match.teamRating > 0) writer.labelValue("Team rating", "${match.teamRating}/10")
 
             writer.section("Timeline")
             if (events.isEmpty()) {
@@ -86,10 +98,46 @@ object MatchPdfExporter {
                             event.type.replace('_', ' ').lowercase()
                                 .replaceFirstChar { it.titlecase() },
                             people,
-                            event.note
+                            event.note,
+                            GoalMouthGeometry.describe(event.goalX, event.goalY)
+                                ?.let { "goal position: $it" }.orEmpty()
                         ).filter { it.isNotBlank() }.joinToString(" - ")
                         writer.bullet(detail)
                     }
+            }
+
+            val lineupChanges = TimelineGrouping
+                .group(events.sortedWith(compareBy<MatchEvent> { it.timestampMs }.thenBy { it.id }))
+                .filterIsInstance<TimelineItem.LineupChange>()
+            if (lineupChanges.isNotEmpty()) {
+                writer.section("Lineup changes")
+                writer.text("Highlighted players came on at that moment.", small = true)
+                lineupChanges.chunked(3).forEach { row ->
+                    writer.block(PITCH_HEIGHT + 30f) { canvas, top ->
+                        row.forEachIndexed { index, change ->
+                            val left = MARGIN + index * (PITCH_WIDTH + 24f)
+                            drawPitch(canvas, change, playersById, left, top)
+                        }
+                    }
+                }
+            }
+
+            writer.section("Goalkeeping")
+            val saves = events.filter { it.type == "KEEPER_SAVE" }
+            writer.text("${saves.size} save(s), ${match.opponentScore} goal(s) conceded")
+            saves.groupBy { it.playerId }.forEach { (keeperId, keeperSaves) ->
+                writer.bullet("${keeperId?.let { names[it] } ?: "Keeper not assigned"} - ${keeperSaves.size} save(s)")
+            }
+
+            val placedGoals = events.filter {
+                (it.type == "OUR_GOAL" || it.type == "OPPONENT_GOAL") && it.goalX != null && it.goalY != null
+            }
+            if (placedGoals.isNotEmpty()) {
+                writer.section("Goal map")
+                writer.text("Green: $teamName goals. Red: ${match.opponent} goals.", small = true)
+                writer.block(GOAL_MAP_HEIGHT + 8f) { canvas, top ->
+                    drawGoalMap(canvas, placedGoals, MARGIN, top)
+                }
             }
 
             writer.section("Player participation")
@@ -135,6 +183,101 @@ object MatchPdfExporter {
         }
     }
 
+    private const val PITCH_WIDTH = 154f
+    private const val PITCH_HEIGHT = 210f
+    private const val GOAL_MAP_WIDTH = 360f
+    private const val GOAL_MAP_HEIGHT = GOAL_MAP_WIDTH / GoalMouthGeometry.ASPECT_RATIO
+
+    private fun drawPitch(
+        canvas: Canvas,
+        change: TimelineItem.LineupChange,
+        playersById: Map<Long, Player>,
+        left: Float,
+        top: Float
+    ) {
+        val grass = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(95, 166, 59) }
+        val line = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.WHITE
+            style = Paint.Style.STROKE
+            strokeWidth = 1.2f
+        }
+        val caption = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.rgb(32, 42, 52)
+            textSize = 9f
+            typeface = Typeface.create(Typeface.SANS_SERIF, Typeface.BOLD)
+        }
+        val pitch = RectF(left, top + 14f, left + PITCH_WIDTH, top + 14f + PITCH_HEIGHT)
+        canvas.drawText(formatTime(change.timestampMs), left, top + 10f, caption)
+        canvas.drawRect(pitch, grass)
+        canvas.drawRect(pitch, line)
+        canvas.drawLine(pitch.left, pitch.centerY(), pitch.right, pitch.centerY(), line)
+        canvas.drawCircle(pitch.centerX(), pitch.centerY(), PITCH_WIDTH * 0.13f, line)
+        val boxWidth = PITCH_WIDTH * 0.58f
+        val boxHeight = PITCH_HEIGHT * 0.16f
+        canvas.drawRect(pitch.centerX() - boxWidth / 2, pitch.top, pitch.centerX() + boxWidth / 2, pitch.top + boxHeight, line)
+        canvas.drawRect(pitch.centerX() - boxWidth / 2, pitch.bottom - boxHeight, pitch.centerX() + boxWidth / 2, pitch.bottom, line)
+
+        val incoming = change.incomingPlayerIds.toSet()
+        val dot = Paint(Paint.ANTI_ALIAS_FLAG)
+        val number = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.rgb(28, 61, 110)
+            textSize = 7.5f
+            textAlign = Paint.Align.CENTER
+            typeface = Typeface.create(Typeface.SANS_SERIF, Typeface.BOLD)
+        }
+        val name = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.WHITE
+            textSize = 6.5f
+            textAlign = Paint.Align.CENTER
+        }
+        change.snapshot.forEach { position ->
+            val player = playersById[position.playerId]
+            val x = pitch.left + PITCH_WIDTH * position.normalizedX.coerceIn(0.07f, 0.93f)
+            val y = pitch.top + PITCH_HEIGHT * position.normalizedY.coerceIn(0.06f, 0.9f)
+            dot.color = if (position.playerId in incoming) Color.rgb(255, 213, 79) else Color.rgb(245, 247, 250)
+            canvas.drawCircle(x, y, 7f, dot)
+            canvas.drawText(
+                player?.shirtNumber?.takeIf { it > 0 }?.toString() ?: "",
+                x, y + 2.7f, number
+            )
+            canvas.drawText(player?.name?.substringBefore(" ")?.take(10) ?: "", x, y + 15f, name)
+        }
+    }
+
+    private fun drawGoalMap(canvas: Canvas, goals: List<MatchEvent>, left: Float, top: Float) {
+        val frame = GoalMouthGeometry.frame(GOAL_MAP_WIDTH, GOAL_MAP_HEIGHT)
+        val net = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(239, 243, 246) }
+        val netLine = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.rgb(184, 196, 204)
+            strokeWidth = 0.6f
+        }
+        val post = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.rgb(55, 71, 79)
+            strokeWidth = 5f
+        }
+        canvas.drawRect(left + frame.left, top + frame.top, left + frame.right, top + frame.bottom, net)
+        for (i in 1 until 12) {
+            val x = left + frame.left + (frame.right - frame.left) * i / 12f
+            canvas.drawLine(x, top + frame.top, x, top + frame.bottom, netLine)
+        }
+        for (i in 1 until 5) {
+            val y = top + frame.top + (frame.bottom - frame.top) * i / 5f
+            canvas.drawLine(left + frame.left, y, left + frame.right, y, netLine)
+        }
+        canvas.drawLine(left + frame.left, top + frame.bottom, left + frame.left, top + frame.top, post)
+        canvas.drawLine(left + frame.right, top + frame.bottom, left + frame.right, top + frame.top, post)
+        canvas.drawLine(left + frame.left - 2.5f, top + frame.top, left + frame.right + 2.5f, top + frame.top, post)
+
+        val ball = Paint(Paint.ANTI_ALIAS_FLAG)
+        val outline = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE }
+        goals.forEach { goal ->
+            val (x, y) = GoalMouthGeometry.toCanvas(goal.goalX!!, goal.goalY!!, GOAL_MAP_WIDTH, GOAL_MAP_HEIGHT)
+            ball.color = if (goal.type == "OUR_GOAL") Color.rgb(46, 125, 50) else Color.rgb(198, 40, 40)
+            canvas.drawCircle(left + x, top + y, 6f, outline)
+            canvas.drawCircle(left + x, top + y, 4.5f, ball)
+        }
+    }
+
     private fun formatTime(milliseconds: Long): String {
         val totalSeconds = milliseconds.coerceAtLeast(0L) / 1_000L
         return "%d:%02d".format(Locale.ROOT, totalSeconds / 60L, totalSeconds % 60L)
@@ -172,6 +315,28 @@ object MatchPdfExporter {
 
         init {
             newPage()
+        }
+
+        /** Draws the team logo in the top-right corner of the current page. */
+        fun logo(bitmap: Bitmap) {
+            val size = 58f
+            val scale = size / maxOf(bitmap.width, bitmap.height).coerceAtLeast(1)
+            val width = bitmap.width * scale
+            val height = bitmap.height * scale
+            val left = PAGE_WIDTH - MARGIN - width
+            canvas!!.drawBitmap(
+                bitmap,
+                null,
+                RectF(left, y, left + width, y + height),
+                Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
+            )
+        }
+
+        /** Reserves [height] points on one page and lets [draw] paint into it. */
+        fun block(height: Float, draw: (Canvas, Float) -> Unit) {
+            ensureSpace(height)
+            draw(canvas!!, y)
+            y += height
         }
 
         fun heading(value: String) {

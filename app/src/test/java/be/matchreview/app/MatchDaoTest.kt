@@ -234,6 +234,96 @@ class MatchDaoTest {
         assertEquals("File-size limit reached", segment.errorMessage)
     }
 
+    @Test
+    fun substitutionRoundKeepsMinutesRunningUntilItIsConfirmed() = runBlocking {
+        val fixture = liveMatch()
+        val (starterA, starterB, benchC, _) = fixture.playerIds
+        val lineup = dao.getLineupOnce(fixture.matchId)
+        // Bench player C replaces starter A; the round is confirmed two minutes in.
+        val plan = lineup.map {
+            when (it.playerId) {
+                starterA -> it.copy(onPitch = false)
+                benchC -> it.copy(onPitch = true, normalizedX = 0.4f, normalizedY = 0.4f)
+                else -> it
+            }
+        }
+
+        val applied = dao.applySubstitutionRound(
+            fixture.matchId, plan, KICK_OFF_MONOTONIC + 120_000, KICK_OFF_WALL + 120_000
+        )
+
+        assertTrue(applied)
+        val participations = dao.observeParticipations(fixture.matchId).first()
+        val closed = participations.single { it.playerId == starterA }
+        assertEquals(120_000L, closed.endMatchTimeMs)
+        val entered = participations.single { it.playerId == benchC }
+        assertEquals(120_000L, entered.startMatchTimeMs)
+        assertNull(participations.single { it.playerId == starterB }.endMatchTimeMs)
+
+        val events = dao.observeEvents(fixture.matchId).first()
+        val substitution = events.single { it.type == "SUBSTITUTION" }
+        assertEquals(starterA, substitution.playerId)
+        assertEquals(benchC, substitution.relatedPlayerId)
+        assertTrue(substitution.lineupSnapshot!!.contains("$benchC:0.400:0.400"))
+        assertEquals(PlayerMatchState.BENCH, dao.getMatchSquadPlayer(fixture.matchId, starterA)!!.state)
+        assertEquals(PlayerMatchState.ON_PITCH, dao.getMatchSquadPlayer(fixture.matchId, benchC)!!.state)
+    }
+
+    @Test
+    fun substitutionRoundRejectsTooManyPlayersAndRemovedPlayers() = runBlocking {
+        val fixture = liveMatch()
+        val lineup = dao.getLineupOnce(fixture.matchId)
+        val everyoneOn = lineup.map { it.copy(onPitch = true) }
+
+        assertFalse(dao.applySubstitutionRound(fixture.matchId, everyoneOn, KICK_OFF_MONOTONIC + 1_000, KICK_OFF_WALL + 1_000))
+
+        val removed = fixture.playerIds[3]
+        dao.updateSquadPlayerState(fixture.matchId, removed, PlayerMatchState.REMOVED)
+        val plan = lineup.map {
+            when (it.playerId) {
+                fixture.playerIds[0] -> it.copy(onPitch = false)
+                removed -> it.copy(onPitch = true)
+                else -> it
+            }
+        }
+        assertFalse(dao.applySubstitutionRound(fixture.matchId, plan, KICK_OFF_MONOTONIC + 2_000, KICK_OFF_WALL + 2_000))
+        assertTrue(dao.observeEvents(fixture.matchId).first().isEmpty())
+    }
+
+    @Test
+    fun keeperSavesAndGoalPositionsAreStored() = runBlocking {
+        val fixture = liveMatch()
+
+        val saveId = dao.recordKeeperSave(fixture.matchId, fixture.playerIds[0], KICK_OFF_MONOTONIC + 5_000, KICK_OFF_WALL + 5_000)
+        val goalId = dao.recordOpponentGoal(fixture.matchId, KICK_OFF_MONOTONIC + 9_000, KICK_OFF_WALL + 9_000)
+        dao.setGoalPlacement(goalId!!, 0.1f, 0.2f)
+
+        assertEquals("KEEPER_SAVE", dao.getEventOnce(saveId!!)!!.type)
+        val goal = dao.getEventOnce(goalId)!!
+        assertEquals(0.1f, goal.goalX!!, 0.0001f)
+        assertEquals(0.2f, goal.goalY!!, 0.0001f)
+        // Saves never change the score.
+        assertEquals(0, dao.getMatchOnce(fixture.matchId)!!.ourScore)
+        assertEquals(1, dao.getMatchOnce(fixture.matchId)!!.opponentScore)
+    }
+
+    @Test
+    fun matchDetailsAndTeamLogoCanBeChangedAfterwards() = runBlocking {
+        val fixture = liveMatch()
+
+        dao.updateMatchDetails(fixture.matchId, "New rivals", "2026-10-04", "Park", "Cup", isHome = false)
+        dao.updateTeamLogo(fixture.teamId, "iVBORw0KGgo=")
+
+        val match = dao.getMatchOnce(fixture.matchId)!!
+        assertEquals("New rivals", match.opponent)
+        assertEquals("2026-10-04", match.matchDate)
+        assertEquals("Park", match.venue)
+        assertEquals("Cup", match.competition)
+        assertFalse(match.isHome)
+        assertEquals(MatchStatus.LIVE, match.status)
+        assertEquals("iVBORw0KGgo=", dao.observeTeams().first().single().logoPng)
+    }
+
     private companion object {
         const val KICK_OFF_MONOTONIC = 3_600_000L
         const val KICK_OFF_WALL = 1_790_000_000_000L

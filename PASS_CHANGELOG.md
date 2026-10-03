@@ -1,7 +1,7 @@
 # MatchReview Pass Changelog
 
 This is the **single source of truth** for implementation-pass notes and change tracking.
-It consolidates implementation notes for Passes 1–45.
+It consolidates implementation notes for Passes 1–51.
 
 ## How to maintain this file
 
@@ -37,7 +37,7 @@ For every future development pass:
 
 | Pass | Status | Planned change | Version impact |
 |---:|---|---|---|
-| 46 | Not scheduled | Add the next approved recommendation here | To be determined |
+| 52 | Not scheduled | Add the next approved recommendation here | To be determined |
 
 ## Documentation changes
 
@@ -106,6 +106,12 @@ For every future development pass:
 | 43 | [Recording storage budget](#pass-43-recording-storage-budget) |
 | 44 | [Practice match onboarding](#pass-44-practice-match-onboarding) |
 | 45 | [Season summary](#pass-45-season-summary) |
+| 46 | [Drag-and-drop substitution mode](#pass-46-drag-and-drop-substitution-mode) |
+| 47 | [Lineup pictures in the timeline](#pass-47-lineup-pictures-in-the-timeline) |
+| 48 | [Goalkeeper saves](#pass-48-goalkeeper-saves) |
+| 49 | [Goal position and goal map](#pass-49-goal-position-and-goal-map) |
+| 50 | [Team logo and richer PDF summary](#pass-50-team-logo-and-richer-pdf-summary) |
+| 51 | [Editable match details and review fixes](#pass-51-editable-match-details-and-review-fixes) |
 
 ---
 
@@ -1149,3 +1155,93 @@ begin.
 ### Deferred or known limitations
 - The dashboard currently summarizes all completed matches; filtering by team and named season can be added without changing the calculation rules.
 
+
+## Pass 46 — Drag-and-drop substitution mode
+
+**Status:** Completed  
+**Completed:** 2026-10-03  
+**Version impact:** App 1.5.0 (`versionCode = 7`); database 5
+
+### Added or changed
+- The live Match tab has a **Substitution mode** that reuses the starting-lineup pitch, bench and long-press drag and drop.
+- Drop a substitute onto a pitch player to swap them, onto free grass when the pitch is not full, or drag a player to the bench. Tapping two players swaps them as an accessible alternative.
+- Changes stay local while the mode is open; the clock and the minutes of the players on the pitch keep running until **Confirm** applies the whole round at one match time (`MatchDao.applySubstitutionRound`).
+- Substitutes are paired with the outgoing player nearest to their new position; unmatched changes are stored as player-on or player-off events, and position-only changes as `POSITION_CHANGE`.
+- Rolling and no-return rules, removed and dismissed players, and the configured match size are enforced again inside the transaction.
+
+### Tests and verification
+- Added `SubstitutionPlanRulesTest` and DAO tests for minute boundaries and rejected rounds.
+
+### Deferred or known limitations
+- An open substitution round is not kept if the app is closed before it is confirmed.
+
+## Pass 47 — Lineup pictures in the timeline
+
+**Status:** Completed  
+**Completed:** 2026-10-03  
+**Version impact:** Database 5 (`events.lineupSnapshot`)
+
+### Added or changed
+- Every lineup-change event stores the resulting on-pitch positions (`LineupSnapshot`).
+- Live and review timelines show one pitch picture per substitution round, highlighting the players who came on, instead of a text row per substitution.
+- Events recorded before this pass keep their text rows.
+
+### Tests and verification
+- Added `LineupSnapshotTest`, including timeline grouping.
+
+## Pass 48 — Goalkeeper saves
+
+**Status:** Completed  
+**Completed:** 2026-10-03  
+**Version impact:** App only (`KEEPER_SAVE` event type)
+
+### Added or changed
+- A **Save** button on the live screen records a save for the keeper on the pitch (from the GK slot, the squad goalkeeper flag or the player position); otherwise it asks who made the save. A snackbar offers undo.
+- Saves can also be recorded from a player's live action sheet.
+- Review summary and PDF show saves per keeper and goals conceded.
+
+### Tests and verification
+- Added goalkeeper detection tests and a DAO test showing saves never change the score.
+
+## Pass 49 — Goal position and goal map
+
+**Status:** Completed  
+**Completed:** 2026-10-03  
+**Version impact:** Database 5 (`events.goalX`, `events.goalY`)
+
+### Added or changed
+- After any goal (ours or the opponent's) a goal mouth is shown so the coach can tap where the ball entered; the step can be skipped.
+- Positions can be edited from the goal editor and from the live and review timelines.
+- The review summary and PDF show a goal map; the CSV export adds `goal_x` and `goal_y`.
+
+### Tests and verification
+- Added `GoalRulesTest` for the tap mapping and zone descriptions.
+
+## Pass 50 — Team logo and richer PDF summary
+
+**Status:** Completed  
+**Completed:** 2026-10-03  
+**Version impact:** Database 5 (`teams.logoPng`)
+
+### Added or changed
+- Teams can upload (Android photo picker, no storage permission), change or remove a logo. It is downscaled to 256 px and stored as a Base64 PNG, so encrypted backups include it.
+- The PDF summary shows the logo and "Team vs Opponent" in home/away order, plus lineup-change pictures, goalkeeping and the goal map.
+- The PDF team rating now reads out of 10, matching the review form (it said /5).
+
+## Pass 51 — Editable match details and review fixes
+
+**Status:** Completed  
+**Completed:** 2026-10-03  
+**Version impact:** App only
+
+### Added or changed
+- Opponent, date, venue, competition and home/away can be edited after creation from the review screen and the match-day check.
+- The home/away selector sits next to the team selector when creating a match.
+- The live scoreboard shows the team name and puts the home side on the left.
+- Fixed: the match date picker could show the previous day in time zones east of UTC.
+- Fixed: the match-day check reported "No goalkeeper role detected" even with a player in the GK slot.
+- The Material 3 opt-in is now in `LiveMatchScreen.kt`; the CI step that patched the file was removed.
+- Fixed the two `LineupDragAndDropTest` cases that looked for an "Auto" button (now "Auto-place"); CI fails on test failures again.
+
+### Tests and verification
+- Database upgrade test now covers migration 4 → 5.

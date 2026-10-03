@@ -2,6 +2,7 @@ package be.matchreview.app
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.layout.*
@@ -460,7 +461,7 @@ private fun LineupHeader(match: GameMatch, onPitch: Int, selected: Int) {
 }
 
 @Composable
-private fun PitchView(
+internal fun PitchView(
     slots: List<FormationSlot>,
     placements: List<MatchLineupPlacement>,
     playersById: Map<Long, Player>,
@@ -474,7 +475,10 @@ private fun PitchView(
     onDragMove: (Offset) -> Unit,
     onDragEnd: (Long, Offset) -> Unit,
     onDragCancel: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    subtitleFor: (Long) -> String? = { null },
+    highlightedPlayerId: Long? = null,
+    dropHint: String? = null
 ) {
     BoxWithConstraints(
         modifier = modifier
@@ -521,6 +525,8 @@ private fun PitchView(
                 player = player,
                 role = placement.role,
                 dragging = draggingPlayerId == player.id,
+                subtitle = subtitleFor(player.id),
+                highlighted = highlightedPlayerId == player.id,
                 onClick = { onPlayerClick(player.id) },
                 onNudge = { dx, dy -> onNudge(player.id, dx, dy) },
                 onDragStart = { pointer -> onDragStart(player.id, pointer) },
@@ -540,7 +546,7 @@ private fun PitchView(
 
         if (isDropTarget) {
             Text(
-                if (highlightedSlotId != null) "Release to snap into position" else "Release to place on pitch",
+                dropHint ?: if (highlightedSlotId != null) "Release to snap into position" else "Release to place on pitch",
                 modifier = Modifier
                     .align(Alignment.TopCenter)
                     .padding(8.dp)
@@ -554,7 +560,7 @@ private fun PitchView(
 }
 
 @Composable
-private fun PitchLines(modifier: Modifier = Modifier) {
+internal fun PitchLines(modifier: Modifier = Modifier) {
     Canvas(modifier) {
         val line = Color.White.copy(alpha = 0.72f)
         val stroke = 3f
@@ -599,6 +605,8 @@ private fun PlayerMarker(
     player: Player,
     role: String,
     dragging: Boolean,
+    subtitle: String?,
+    highlighted: Boolean,
     onClick: () -> Unit,
     onNudge: (Float, Float) -> Unit,
     onDragStart: (Offset) -> Unit,
@@ -631,7 +639,10 @@ private fun PlayerMarker(
             .clickable(onClick = onClick),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        PlayerBadge(player)
+        PlayerBadge(
+            player,
+            if (highlighted) Modifier.border(3.dp, Color(0xFFFFD54F), CircleShape) else Modifier
+        )
         Text(
             player.name.substringBefore(" ").uppercase(),
             color = Color.White,
@@ -640,6 +651,15 @@ private fun PlayerMarker(
             maxLines = 1,
             overflow = TextOverflow.Ellipsis
         )
+        subtitle?.let {
+            Text(
+                it,
+                color = Color(0xFF16330E),
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1
+            )
+        }
     }
 }
 
@@ -663,7 +683,7 @@ private fun PlayerBadge(player: Player, modifier: Modifier = Modifier) {
 }
 
 @Composable
-private fun PlayerDragGhost(player: Player, modifier: Modifier = Modifier) {
+internal fun PlayerDragGhost(player: Player, modifier: Modifier = Modifier) {
     Column(
         modifier = modifier.width(58.dp),
         horizontalAlignment = Alignment.CenterHorizontally
@@ -684,7 +704,7 @@ private fun PlayerDragGhost(player: Player, modifier: Modifier = Modifier) {
 }
 
 @Composable
-private fun BenchPanel(
+internal fun BenchPanel(
     players: List<Player>,
     draggingPlayerId: Long?,
     isDropTarget: Boolean,
@@ -693,7 +713,9 @@ private fun BenchPanel(
     onDragStart: (Long, Offset) -> Unit,
     onDragMove: (Offset) -> Unit,
     onDragEnd: (Long, Offset) -> Unit,
-    onDragCancel: () -> Unit
+    onDragCancel: () -> Unit,
+    subtitleFor: (Long) -> String? = { null },
+    canDrag: (Long) -> Boolean = { true }
 ) {
     Surface(
         color = if (isDropTarget) MaterialTheme.colorScheme.secondaryContainer
@@ -725,13 +747,23 @@ private fun BenchPanel(
                             Modifier
                                 .testTag(LineupTestTags.benchPlayer(player.id))
                                 .width(54.dp)
-                                .alpha(if (draggingPlayerId == player.id) 0.18f else 1f)
-                                .longPressPlayerDrag(
-                                    playerId = player.id,
-                                    onStart = { onDragStart(player.id, it) },
-                                    onMove = onDragMove,
-                                    onEnd = { onDragEnd(player.id, it) },
-                                    onCancel = onDragCancel
+                                .alpha(
+                                    when {
+                                        draggingPlayerId == player.id -> 0.18f
+                                        !canDrag(player.id) -> 0.45f
+                                        else -> 1f
+                                    }
+                                )
+                                .then(
+                                    if (canDrag(player.id)) {
+                                        Modifier.longPressPlayerDrag(
+                                            playerId = player.id,
+                                            onStart = { onDragStart(player.id, it) },
+                                            onMove = onDragMove,
+                                            onEnd = { onDragEnd(player.id, it) },
+                                            onCancel = onDragCancel
+                                        )
+                                    } else Modifier
                                 )
                                 .semantics {
                                     contentDescription =
@@ -763,6 +795,13 @@ private fun BenchPanel(
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
                             )
+                            subtitleFor(player.id)?.let {
+                                Text(
+                                    it,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    maxLines = 1
+                                )
+                            }
                         }
                     }
                 }

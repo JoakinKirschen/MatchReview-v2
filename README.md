@@ -1,5 +1,11 @@
 # MatchReview Android
 
+## 1.5.0 match-day release
+
+Passes 46–51 add drag-and-drop substitution mode, lineup pictures in the timeline,
+goalkeeper saves, goal positions with a goal map, team logos on the PDF summary, and
+editable match details.
+
 ## 1.4.0 trust-and-resilience release
 
 Passes 36–45 strengthen match-data integrity, duplicate-action protection, clock recovery,
@@ -7,7 +13,7 @@ recording diagnostics, backup verification, privacy-safe CSV export, accessibili
 storage budgeting, practice-mode onboarding, and season summaries.
 
 See [`PASS_CHANGELOG.md`](PASS_CHANGELOG.md) for the consolidated implementation
-history for Passes 1–45. All future pass changes must also be recorded there.
+history for Passes 1–51. All future pass changes must also be recorded there.
 
 
 A native Android application for offline football match review, team/player management,
