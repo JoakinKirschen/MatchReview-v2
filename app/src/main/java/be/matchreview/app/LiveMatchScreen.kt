@@ -2,7 +2,13 @@
 
 package be.matchreview.app
 
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.SystemClock
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -44,6 +50,7 @@ import be.matchreview.app.domain.GoalMouthGeometry
 import be.matchreview.app.domain.GoalkeeperRules
 import be.matchreview.app.domain.PlayingTimeRules
 import be.matchreview.app.domain.LineupUndoRules
+import be.matchreview.app.domain.LiveClockRules
 import be.matchreview.app.domain.MatchActions
 import be.matchreview.app.domain.MatchStats
 import be.matchreview.app.domain.MatchStatsRules
@@ -144,14 +151,27 @@ fun LiveMatchScreen(
         PeriodTimeRules.isOver(periodTimeMs, plannedPeriodMs)
 
     // Vibrate once when the planned period time is reached; the clock itself keeps running.
-    var alertedPeriod by rememberSaveable { mutableIntStateOf(0) }
+    // The notification clock alerts too when the phone is locked; whichever is first wins.
     LaunchedEffect(periodTimeUp, current.currentPeriod) {
         if (current.status == MatchStatus.LIVE &&
-            PeriodTimeRules.shouldAlert(periodTimeMs, plannedPeriodMs, alertedPeriod == current.currentPeriod)
+            PeriodTimeRules.shouldAlert(periodTimeMs, plannedPeriodMs, alreadyAlerted = false) &&
+            MatchAlerts.claimPeriodAlert(context, matchId, current.currentPeriod)
         ) {
             MatchAlerts.vibratePeriodEnd(context)
-            alertedPeriod = current.currentPeriod
         }
+    }
+    // The clock and score in the notification bar, also when another app is open.
+    LaunchedEffect(current.status) {
+        if (current.status in LiveClockRules.ACTIVE_STATUSES) MatchClockService.start(context)
+    }
+    val notificationPermission = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { /* The clock works either way; only the notification needs it. */ }
+    fun askForNotifications() {
+        if (Build.VERSION.SDK_INT >= 33 &&
+            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) !=
+            PackageManager.PERMISSION_GRANTED
+        ) notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
     }
 
     val teamName = teams.firstOrNull { it.id == current.teamId }?.name ?: "Our team"
@@ -409,7 +429,10 @@ fun LiveMatchScreen(
                     LiveControlBar(
                         match = current,
                         actionEnabled = !liveActionLocked,
-                        onKickOff = { runLiveAction { vm.kickOffMatch(matchId) } },
+                        onKickOff = {
+                            askForNotifications()
+                            runLiveAction { vm.kickOffMatch(matchId) }
+                        },
                         onPause = { runLiveAction { vm.pauseMatchClock(matchId) } },
                         onResume = { runLiveAction { vm.resumeMatchClock(matchId) } },
                         onEndPeriod = { showEndPeriodConfirmation = true },

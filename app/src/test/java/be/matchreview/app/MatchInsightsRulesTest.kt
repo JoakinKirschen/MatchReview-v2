@@ -8,6 +8,9 @@ import be.matchreview.app.data.PlayerParticipation
 import be.matchreview.app.domain.BackupReminderRules
 import be.matchreview.app.domain.GoalSummaryRules
 import be.matchreview.app.domain.LineupUndoRules
+import be.matchreview.app.domain.LiveClockRules
+import be.matchreview.app.data.MatchClockSegment
+import be.matchreview.app.data.MatchPeriod
 import be.matchreview.app.domain.MatchStatsRules
 import be.matchreview.app.data.MatchLineupPlacement
 import be.matchreview.app.domain.PeriodTimeRules
@@ -154,5 +157,26 @@ class MatchInsightsRulesTest {
         assertEquals(0.8f, plan.before.first().normalizedY, 0.001f)
         // A goal is not a lineup change, so there is nothing to undo.
         assertNull(LineupUndoRules.plan(listOf(MatchEvent(matchId = 1, timestampMs = 1, type = "OUR_GOAL")), emptyList()))
+    }
+
+    @Test
+    fun notificationClockCountsDownToThePeriodEnd() {
+        val match = GameMatch(id = 1, teamId = 1, opponent = "R", matchDate = "2026-10-03", status = MatchStatus.LIVE,
+            currentPeriod = 2, periodDurationMinutes = 15, accumulatedMatchTimeMs = 900_000, clockRunning = true)
+        val periods = listOf(MatchPeriod(id = 2, matchId = 1, periodNumber = 2, plannedDurationMs = 900_000, startMatchTimeMs = 900_000))
+        // Period 2 resumed at 15:00 match time, 10 minutes ago.
+        val segment = MatchClockSegment(matchId = 1, periodId = 2, startMatchTimeMs = 900_000,
+            monotonicStartMs = 1_000_000, wallClockStartMs = 1_790_000_000_000)
+
+        val clock = LiveClockRules.clock(match, listOf(segment), periods, 1_600_000, 1_790_000_600_000)
+
+        assertEquals(1_500_000L, clock.matchTimeMs)
+        assertEquals(600_000L, clock.periodTimeMs)
+        assertEquals(300_000L, clock.msUntilPeriodEnd)
+        // Paused: nothing to count down.
+        val paused = LiveClockRules.clock(match.copy(status = MatchStatus.PAUSED, clockRunning = false,
+            accumulatedMatchTimeMs = 1_500_000), emptyList(), periods, 0, 0)
+        assertEquals(600_000L, paused.periodTimeMs)
+        assertNull(paused.msUntilPeriodEnd)
     }
 }

@@ -1,6 +1,7 @@
 package be.matchreview.app
 
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.widget.FrameLayout
 import android.widget.Toast
@@ -45,6 +46,10 @@ import be.matchreview.app.ui.ThemeMode
 import be.matchreview.app.domain.MatchActions
 import be.matchreview.app.domain.MatchExportFormatter
 import be.matchreview.app.domain.MatchStatsRules
+import be.matchreview.app.domain.HighlightClip
+import be.matchreview.app.domain.HighlightRules
+import be.matchreview.app.recording.HighlightReel
+import be.matchreview.app.recording.HighlightReelMaker
 import be.matchreview.app.domain.SeasonReportRules
 import be.matchreview.app.domain.ExportPrivacyOptions
 import be.matchreview.app.domain.MediaIntegrityRules
@@ -67,6 +72,11 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.first
+import androidx.lifecycle.lifecycleScope
+import android.content.Intent
+import be.matchreview.app.domain.LiveClockRules
 import kotlinx.coroutines.withContext
 import be.matchreview.app.recording.CameraRecordingController
 import be.matchreview.app.recording.activeMatchId
@@ -83,20 +93,59 @@ private enum class ReviewSection(val label: String) {
 }
 
 class MainActivity : ComponentActivity() {
+    /** A live match to open, from a tap on the match clock notification. */
+    private val openLiveMatch = MutableStateFlow<Long?>(null)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        if (savedInstanceState == null) handleIntent(intent)
         setContent {
             val vm: MainViewModel = viewModel()
             val themeMode by vm.themeMode.collectAsStateWithLifecycle()
-            MatchReviewTheme(themeMode) { MatchReviewApp(vm) }
+            val openLiveMatchId by openLiveMatch.collectAsStateWithLifecycle()
+            MatchReviewTheme(themeMode) {
+                MatchReviewApp(vm, openLiveMatchId, onLiveMatchOpened = { openLiveMatch.value = null })
+            }
         }
+        // Bring the notification clock back when the app reopens during a match.
+        lifecycleScope.launch {
+            val active = (application as MatchReviewApplication).repository.activeMatch.first()
+            if (active != null && active.status in LiveClockRules.ACTIVE_STATUSES) {
+                MatchClockService.start(this@MainActivity)
+            }
+        }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        handleIntent(intent)
+    }
+
+    private fun handleIntent(intent: Intent?) {
+        val matchId = intent?.getLongExtra(EXTRA_OPEN_LIVE_MATCH, 0L) ?: 0L
+        if (matchId > 0L) openLiveMatch.value = matchId
+        intent?.removeExtra(EXTRA_OPEN_LIVE_MATCH)
+    }
+
+    companion object {
+        const val EXTRA_OPEN_LIVE_MATCH = "open_live_match_id"
     }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun MatchReviewApp(vm: MainViewModel = viewModel()) {
+fun MatchReviewApp(
+    vm: MainViewModel = viewModel(),
+    openLiveMatchId: Long? = null,
+    onLiveMatchOpened: () -> Unit = {}
+) {
     val nav = rememberNavController()
+    LaunchedEffect(openLiveMatchId) {
+        openLiveMatchId?.let { matchId ->
+            nav.navigate("live/$matchId") { launchSingleTop = true }
+            onLiveMatchOpened()
+        }
+    }
     val backStackEntry by nav.currentBackStackEntryAsState()
     val route = backStackEntry?.destination?.route.orEmpty()
     val immersiveMatchDay = route.startsWith("live/")
@@ -1914,6 +1963,7 @@ private fun ReviewScreen(matchId: Long, vm: MainViewModel, nav: NavHostControlle
                 Text("Change video")
             }
         }
+        HighlightsCard(current, events, recordings)
         videoImportMessage?.let { message ->
             Card(
                 colors = CardDefaults.cardColors(
@@ -2273,6 +2323,88 @@ private fun ReviewScreen(matchId: Long, vm: MainViewModel, nav: NavHostControlle
                 showTag = false
             }
         )
+    }
+}
+
+/** Joins the recorded goal clips into one video to watch or share. */
+@Composable
+private fun HighlightsCard(match: GameMatch, events: List<MatchEvent>, recordings: List<RecordingSegment>) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val ourClips = remember(events, recordings) { HighlightRules.clips(events, recordings, HighlightRules.OUR_GOALS) }
+    val allClips = remember(events, recordings) { HighlightRules.clips(events, recordings, HighlightRules.ALL_GOALS) }
+    var progress by remember { mutableStateOf<Float?>(null) }
+    var reel by remember { mutableStateOf<HighlightReel?>(null) }
+    var message by remember { mutableStateOf<String?>(null) }
+    fun make(clips: List<HighlightClip>, label: String) {
+        progress = 0f
+        message = null
+        reel = null
+        scope.launch {
+            runCatching {
+                val opponent = match.opponent.lowercase(Locale.ROOT).replace(Regex("[^a-z0-9]+"), "-").trim('-')
+                HighlightReelMaker.make(
+                    context,
+                    clips,
+                    "matchreview-$label-${match.matchDate}-${opponent.ifBlank { "match" }}.mp4"
+                ) { progress = it }
+            }.onSuccess {
+                reel = it
+                message = buildString {
+                    append("${formatTime(it.durationMs)} video saved")
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) append(" to Movies/MatchReview")
+                    if (it.skipped > 0) append(". ${it.skipped} clip(s) recorded with other settings were left out")
+                }
+            }.onFailure {
+                message = "Highlights failed: ${it.message ?: "unknown error"}"
+            }
+            progress = null
+        }
+    }
+    Card(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text("Goal highlights", style = MaterialTheme.typography.titleMedium)
+            if (allClips.isEmpty()) {
+                Text(
+                    "Record the match with the camera in the live screen to make a video of all the goals.",
+                    style = MaterialTheme.typography.bodySmall
+                )
+                return@Column
+            }
+            Text(
+                "Joins about ${HighlightRules.BEFORE_MS / 1000} s before and ${HighlightRules.AFTER_MS / 1000} s after " +
+                    "each recorded goal into one video.",
+                style = MaterialTheme.typography.bodySmall
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FilledTonalButton(
+                    onClick = { make(ourClips, "our-goals") },
+                    enabled = progress == null && ourClips.isNotEmpty(),
+                    modifier = Modifier.weight(1f).heightIn(min = 48.dp)
+                ) { Text("Our goals (${ourClips.sumOf { it.eventIds.size }})") }
+                OutlinedButton(
+                    onClick = { make(allClips, "goals") },
+                    enabled = progress == null,
+                    modifier = Modifier.weight(1f).heightIn(min = 48.dp)
+                ) { Text("All goals (${allClips.sumOf { it.eventIds.size }})") }
+            }
+            progress?.let { LinearProgressIndicator(progress = { it }, modifier = Modifier.fillMaxWidth()) }
+            message?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+            reel?.let { saved ->
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(
+                        onClick = {
+                            if (!ExternalApps.open(context, saved.uri, "video/mp4")) message = "Install a video player to watch it."
+                        },
+                        modifier = Modifier.weight(1f).heightIn(min = 48.dp)
+                    ) { Text("Play") }
+                    OutlinedButton(
+                        onClick = { ExternalApps.share(context, saved.uri, "video/mp4", "Goals vs ${match.opponent}") },
+                        modifier = Modifier.weight(1f).heightIn(min = 48.dp)
+                    ) { Text("Share") }
+                }
+            }
+        }
     }
 }
 

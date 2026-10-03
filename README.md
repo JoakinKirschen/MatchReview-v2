@@ -13,7 +13,7 @@ recording diagnostics, backup verification, privacy-safe CSV export, accessibili
 storage budgeting, practice-mode onboarding, and season summaries.
 
 See [`PASS_CHANGELOG.md`](PASS_CHANGELOG.md) for the consolidated implementation
-history for Passes 1–52. All future pass changes must also be recorded there.
+history for Passes 1–63. All future pass changes must also be recorded there.
 
 
 A native Android application for offline football match review, team/player management,

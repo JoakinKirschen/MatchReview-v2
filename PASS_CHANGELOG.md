@@ -1,7 +1,7 @@
 # MatchReview Pass Changelog
 
 This is the **single source of truth** for implementation-pass notes and change tracking.
-It consolidates implementation notes for Passes 1–57.
+It consolidates implementation notes for Passes 1–63.
 
 ## How to maintain this file
 
@@ -37,7 +37,7 @@ For every future development pass:
 
 | Pass | Status | Planned change | Version impact |
 |---:|---|---|---|
-| 58 | Not scheduled | Add the next approved recommendation here | To be determined |
+| 64 | Not scheduled | Add the next approved recommendation here | To be determined |
 
 ## Documentation changes
 
@@ -125,6 +125,12 @@ For every future development pass:
 | 55 | [Coaching insights and sideline comfort](#pass-55-coaching-insights-and-sideline-comfort) |
 | 56 | [Editable season stats and a cleaner dashboard](#pass-56-editable-season-stats-and-a-cleaner-dashboard) |
 | 57 | [Starting lineup in the review](#pass-57-starting-lineup-in-the-review) |
+| 58 | [Undo a lineup change](#pass-58-undo-a-lineup-change) |
+| 59 | [Shots, corners and cards](#pass-59-shots-corners-and-cards) |
+| 60 | [Season report export](#pass-60-season-report-export) |
+| 61 | [Automatic backups](#pass-61-automatic-backups) |
+| 62 | [Match clock in the notification bar](#pass-62-match-clock-in-the-notification-bar) |
+| 63 | [Goal highlights video](#pass-63-goal-highlights-video) |
 
 ---
 
@@ -1359,3 +1365,93 @@ begin.
 
 ### Tests and verification
 - Added `StartingLineupRulesTest` and a DAO test for the kick-off picture.
+
+## Pass 58 — Undo a lineup change
+
+**Status:** Completed  
+**Completed:** 2026-10-03  
+**Version impact:** None
+
+### Added or changed
+- The latest lineup change of the current period (a substitution round, an injury or a red card) can be undone: "Undo" on the snackbar right after the round, or on the newest lineup picture in the live timeline, after a confirmation.
+- Undo restores positions, bench and pitch states and playing minutes: players taken off keep their minutes running as if they never left, substitutes lose the minutes of the undone round. The round's events are removed.
+- During a break only changes made after the period ended can be undone. The starting lineup can never be undone.
+
+### Tests and verification
+- `LineupUndoRules` tests in `MatchInsightsRulesTest`; DAO tests for undoing a substitution round and a red card.
+
+## Pass 59 — Shots, corners and cards
+
+**Status:** Completed  
+**Completed:** 2026-10-03  
+**Version impact:** None (new event types)
+
+### Added or changed
+- Live screen: a "⋯" button next to Undo opens match actions for both teams: shot on target, shot off target, corner, yellow card and red card, with running totals. "Opponent goal" is shortened to "Their goal".
+- Shots ask who took them (or "Player not assigned"), yellow cards ask for a squad player, a red card for our team sends a player off. Every action shows a snackbar with Undo and can be deleted from the timeline.
+- Goals count as shots on target and our keeper's saves as the opponent's shots on target, so nothing is entered twice.
+- Match stats table (goals, shots, on target, corners, cards) in the review summary and the PDF, shown when more than goals was recorded.
+- `PdfWriter` moved to its own file with a table helper.
+
+### Tests and verification
+- `MatchStatsRules` tests and a DAO test that records actions for both teams.
+
+## Pass 60 — Season report export
+
+**Status:** Completed  
+**Completed:** 2026-10-03  
+**Version impact:** None
+
+### Added or changed
+- Team page: "Season report" with Download PDF, Share and CSV. The report has the team logo, the record (won, drawn, lost, goals), all finished matches and a player table (matches, minutes, goals, assists, saves, yellow and red cards). Coach corrections are included.
+- The CSV quotes every cell and neutralises cells that a spreadsheet could run as a formula.
+
+### Tests and verification
+- `SeasonReportRulesTest`.
+
+## Pass 61 — Automatic backups
+
+**Status:** Completed  
+**Completed:** 2026-10-03  
+**Version impact:** None (backup format unchanged)
+
+### Added or changed
+- Backup screen: "Automatic backup". Pick a folder once (local storage, Google Drive or another provider) using the password entered above. After every finished match an encrypted `.mrbak` backup is saved there; the newest five automatic backups are kept and files saved by hand are never touched.
+- The password is stored encrypted with an AES key in the Android keystore; it cannot be read back from the app's files. Videos can be included or left out.
+- A successful automatic backup clears the backup reminder. A failure is shown on the dashboard and the backup screen; "Back up now" retries.
+
+### Tests and verification
+- `AutoBackupRulesTest` for naming and clean-up.
+
+### Deferred or known limitations
+- After restoring the app on a new phone, automatic backup has to be turned on again because the keystore key does not move with it.
+
+## Pass 62 — Match clock in the notification bar
+
+**Status:** Completed  
+**Completed:** 2026-10-03  
+**Version impact:** None (new foreground service)
+
+### Added or changed
+- While a match is in play, a notification shows the score and the running period clock, or "paused" and the break between periods. Tapping it opens the live match.
+- The period-end alert (strong vibration and a high-priority notification) now also works with the phone locked or another app open. The live screen and the notification share one alert, so it never fires twice.
+- The notification permission is asked at kick-off. The service stops itself when the match is finished.
+
+### Tests and verification
+- `LiveClockRules` test in `MatchInsightsRulesTest`.
+
+## Pass 63 — Goal highlights video
+
+**Status:** Completed  
+**Completed:** 2026-10-03  
+**Version impact:** None
+
+### Added or changed
+- Review → Video: "Goal highlights" joins about 8 seconds before and 4 seconds after every recorded goal into one MP4 ("Our goals" or "All goals"), saved to Movies/MatchReview, with Play and Share.
+- Clips are joined without re-encoding, so it is quick and keeps the quality. Goals close together in one recording become one clip.
+
+### Tests and verification
+- `HighlightRulesTest`.
+
+### Deferred or known limitations
+- Cuts start at the key frame before each window, so a clip can begin a second or two early. Clips recorded with other camera settings than the first goal are left out and reported.
