@@ -13,6 +13,14 @@ data class SubstitutionChanges(
     val isEmpty: Boolean get() = !hasSubstitutions && moved.isEmpty()
 }
 
+/** What happens when a dragged player is released on the pitch. */
+sealed interface SubstitutionDrop {
+    /** Exchange places with this player (a substitution when one of them is on the bench). */
+    data class Swap(val targetPlayerId: Long) : SubstitutionDrop
+    /** Take this spot on the pitch, snapped to a free formation slot when close to one. */
+    data class Place(val drop: PitchDrop) : SubstitutionDrop
+}
+
 /** A player off and the player who replaced them; either side may be missing. */
 data class SubstitutionPair(val outgoingId: Long?, val incomingId: Long?)
 
@@ -80,6 +88,49 @@ object SubstitutionPlanRules {
         val existing = plan[playerId] ?: return plan
         if (!existing.onPitch) return plan
         return plan + (playerId to existing.copy(onPitch = false, formationSlot = "", role = ""))
+    }
+
+    /**
+     * Decides where a released player goes. Distances are measured in pixels so the hit
+     * area is round on screen whatever the pitch's aspect ratio.
+     *
+     * - Released on (or near) another pitch player: swap with them.
+     * - A substitute released while the pitch is full: replace the nearest player, so the
+     *   drop always snaps to someone instead of failing.
+     * - Otherwise: place it, snapping to a free formation slot when one is near.
+     */
+    fun resolveDrop(
+        plan: Map<Long, MatchLineupPlacement>,
+        draggedId: Long,
+        normalizedX: Float,
+        normalizedY: Float,
+        slots: List<FormationSlot>,
+        maximumOnPitch: Int,
+        pitchWidthPx: Float,
+        pitchHeightPx: Float,
+        playerHitRadiusPx: Float
+    ): SubstitutionDrop? {
+        val dragged = plan[draggedId] ?: return null
+        val others = plan.values.filter { it.onPitch && it.playerId != draggedId }
+        val nearest = others.minByOrNull { other ->
+            val dx = (other.normalizedX - normalizedX) * pitchWidthPx
+            val dy = (other.normalizedY - normalizedY) * pitchHeightPx
+            dx * dx + dy * dy
+        }
+        if (nearest != null) {
+            val dx = (nearest.normalizedX - normalizedX) * pitchWidthPx
+            val dy = (nearest.normalizedY - normalizedY) * pitchHeightPx
+            if (dx * dx + dy * dy <= playerHitRadiusPx * playerHitRadiusPx) {
+                return SubstitutionDrop.Swap(nearest.playerId)
+            }
+        }
+        if (!dragged.onPitch && plan.values.count { it.onPitch } >= maximumOnPitch) {
+            return nearest?.let { SubstitutionDrop.Swap(it.playerId) }
+        }
+        val occupied = LineupDragDropRules.occupiedSlotIds(slots, others)
+        return SubstitutionDrop.Place(
+            LineupDragDropRules.resolvePitchDrop(normalizedX, normalizedY, slots, occupied)
+        )
     }
 
     fun changes(

@@ -1,7 +1,10 @@
 package be.matchreview.app
 
 import be.matchreview.app.data.MatchLineupPlacement
+import be.matchreview.app.domain.FormationSlot
+import be.matchreview.app.domain.LineupDragDropRules
 import be.matchreview.app.domain.PitchDrop
+import be.matchreview.app.domain.SubstitutionDrop
 import be.matchreview.app.domain.SubstitutionPair
 import be.matchreview.app.domain.SubstitutionPlanRules
 import org.junit.Assert.*
@@ -76,5 +79,42 @@ class SubstitutionPlanRulesTest {
         val updated = SubstitutionPlanRules.moveToBench(plan, 12)
 
         assertEquals(listOf(SubstitutionPair(12, null)), SubstitutionPlanRules.pairs(original, updated))
+    }
+
+    private val slots = listOf(
+        FormationSlot("GK", "GK", 0.5f, 0.9f),
+        FormationSlot("DEF-1", "DEF", 0.3f, 0.6f),
+        FormationSlot("FWD-1", "FWD", 0.7f, 0.3f),
+        FormationSlot("FWD-2", "FWD", 0.3f, 0.3f)
+    )
+
+    private fun drop(plan: Map<Long, MatchLineupPlacement>, id: Long, x: Float, y: Float, max: Int = 4) =
+        SubstitutionPlanRules.resolveDrop(plan, id, x, y, slots, max, 400f, 600f, playerHitRadiusPx = 40f)
+
+    @Test
+    fun releasingNearAPlayerSwapsWithThem() {
+        assertEquals(SubstitutionDrop.Swap(11), drop(plan, 20, 0.33f, 0.62f))
+    }
+
+    @Test
+    fun fullPitchSnapsSubstituteToNearestPlayer() {
+        // Far from everyone, but the pitch already has its 3 players.
+        assertEquals(SubstitutionDrop.Swap(12), drop(plan, 20, 0.85f, 0.15f, max = 3))
+    }
+
+    @Test
+    fun freeSlotNearDropIsSnappedButOccupiedSlotIsNot() {
+        val result = drop(plan, 20, 0.33f, 0.35f) as SubstitutionDrop.Place
+        assertEquals("FWD-2", result.drop.formationSlot)
+        assertTrue(result.drop.snapped)
+    }
+
+    @Test
+    fun playerStandingOnASlotOccupiesItWithoutItsSlotId() {
+        val practice = listOf(MatchLineupPlacement(1, 30, 0.31f, 0.31f, "", "practice-3", onPitch = true))
+
+        assertTrue("FWD-2" in LineupDragDropRules.occupiedSlotIds(slots, practice))
+        assertTrue("practice-3" in LineupDragDropRules.occupiedSlotIds(slots, practice))
+        assertFalse("FWD-1" in LineupDragDropRules.occupiedSlotIds(slots, practice))
     }
 }

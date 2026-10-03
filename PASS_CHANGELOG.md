@@ -1,7 +1,7 @@
 # MatchReview Pass Changelog
 
 This is the **single source of truth** for implementation-pass notes and change tracking.
-It consolidates implementation notes for Passes 1–52.
+It consolidates implementation notes for Passes 1–53.
 
 ## How to maintain this file
 
@@ -37,7 +37,7 @@ For every future development pass:
 
 | Pass | Status | Planned change | Version impact |
 |---:|---|---|---|
-| 53 | Not scheduled | Add the next approved recommendation here | To be determined |
+| 54 | Not scheduled | Add the next approved recommendation here | To be determined |
 
 ## Documentation changes
 
@@ -120,6 +120,7 @@ For every future development pass:
 | 50 | [Team logo and richer PDF summary](#pass-50-team-logo-and-richer-pdf-summary) |
 | 51 | [Editable match details and review fixes](#pass-51-editable-match-details-and-review-fixes) |
 | 52 | [Review follow-ups](#pass-52-review-follow-ups) |
+| 53 | [Full-screen substitution mode](#pass-53-full-screen-substitution-mode) |
 
 ---
 
@@ -1271,3 +1272,20 @@ begin.
 
 ### Tests and verification
 - Added `SubstitutionDraftCodecTest` and team-filter tests in `SeasonSummaryRulesTest`.
+
+## Pass 53 — Full-screen substitution mode
+
+**Status:** Completed  
+**Completed:** 2026-10-03  
+**Version impact:** App only
+
+### Added or changed
+- Substitution mode fills the screen with the pitch and bench. The scoreboard, recording chip, action buttons, tabs, period controls and the explanation banner are hidden; one compact line shows the clock, score and pending changes.
+- Fixed snapping: a formation slot now counts as taken when a player stands on it, not only when the player's saved slot id matches. Players placed freely or by a practice match no longer leave their slot looking free.
+- While the pitch is full, a substitute released anywhere on the pitch replaces the nearest player. The player or slot that a drop will snap to is highlighted while dragging.
+- No messages pop up while placing players; disallowed moves only give haptic feedback. A click right after a drop no longer opens the player sheet (also in the starting-lineup builder).
+- Substitutions are only possible in substitution mode. The live player sheet keeps goal, save and injury/sent-off actions and offers "Open substitution mode" instead of substitute, put-on-pitch and move-to-bench actions.
+- The "Download match summary (PDF)" button sits under the review's Save button.
+
+### Tests and verification
+- Added drop-resolution and slot-occupancy tests to `SubstitutionPlanRulesTest`.

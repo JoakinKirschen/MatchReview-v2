@@ -106,12 +106,18 @@ fun LineupBuilderScreen(
     var pitchBounds by remember { mutableStateOf<Rect?>(null) }
     var benchBounds by remember { mutableStateOf<Rect?>(null) }
     var editorOrigin by remember { mutableStateOf(Offset.Zero) }
+    // A drop can be followed by a click on the same item; it must not open the player sheet.
+    var lastDropAt by remember { mutableLongStateOf(0L) }
+    fun openPlayer(playerId: Long) {
+        if (android.os.SystemClock.uptimeMillis() - lastDropAt > 400L) selectedPlayerId = playerId
+    }
 
     val snackbar = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     val haptics = LocalHapticFeedback.current
 
     fun finishDrag(playerId: Long, pointer: Offset) {
+        lastDropAt = android.os.SystemClock.uptimeMillis()
         val existing = placementByPlayer[playerId]
             ?: MatchLineupPlacement(matchId = matchId, playerId = playerId)
         val pitch = pitchBounds
@@ -128,11 +134,9 @@ fun LineupBuilderScreen(
                         pointer.x, pointer.y,
                         pitch.left, pitch.top, pitch.width, pitch.height
                     )
-                    val occupied = onPitch
-                        .filterNot { it.playerId == playerId }
-                        .mapNotNullTo(mutableSetOf()) {
-                            it.formationSlot.takeIf(String::isNotBlank)
-                        }
+                    val occupied = LineupDragDropRules.occupiedSlotIds(
+                        slots, onPitch.filterNot { it.playerId == playerId }
+                    )
                     val drop = LineupDragDropRules.resolvePitchDrop(
                         rawX, rawY, slots, occupied
                     )
@@ -177,9 +181,9 @@ fun LineupBuilderScreen(
             drag.pointerInRoot.x, drag.pointerInRoot.y,
             pitch.left, pitch.top, pitch.width, pitch.height
         )
-        val occupied = onPitch
-            .filterNot { it.playerId == drag.playerId }
-            .mapNotNullTo(mutableSetOf()) { it.formationSlot.takeIf(String::isNotBlank) }
+        val occupied = LineupDragDropRules.occupiedSlotIds(
+            slots, onPitch.filterNot { it.playerId == drag.playerId }
+        )
         LineupDragDropRules.resolvePitchDrop(x, y, slots, occupied)
             .takeIf { it.snapped }
             ?.formationSlot
@@ -208,7 +212,7 @@ fun LineupBuilderScreen(
                         highlightedSlotId = hoveredSlotId,
                         isDropTarget = pitchIsDropTarget,
                         onBoundsChanged = { pitchBounds = it },
-                        onPlayerClick = { selectedPlayerId = it },
+                        onPlayerClick = ::openPlayer,
                         onNudge = { playerId, dx, dy ->
                             placementByPlayer[playerId]?.let { existing ->
                                 vm.setLineupPlacement(
@@ -240,7 +244,7 @@ fun LineupBuilderScreen(
                         draggingPlayerId = dragState?.playerId,
                         isDropTarget = benchIsDropTarget,
                         onBoundsChanged = { benchBounds = it },
-                        onPlayerClick = { selectedPlayerId = it },
+                        onPlayerClick = ::openPlayer,
                         onDragStart = { playerId, pointer ->
                             dragState = LineupDragState(playerId, false, pointer)
                             haptics.performHapticFeedback(HapticFeedbackType.LongPress)
@@ -892,9 +896,7 @@ private fun PlayerPlacementSheet(
     onSwapWith: (MatchLineupPlacement) -> Unit,
     onNudge: (Float, Float) -> Unit
 ) {
-    val occupiedSlotIds = occupiedPlacements.mapNotNullTo(mutableSetOf()) {
-        it.formationSlot.takeIf(String::isNotBlank)
-    }
+    val occupiedSlotIds = LineupDragDropRules.occupiedSlotIds(slots, occupiedPlacements)
     val nearestAvailable = slots.firstOrNull { it.id !in occupiedSlotIds } ?: slots.first()
 
     ModalBottomSheet(onDismissRequest = onDismiss) {

@@ -1670,6 +1670,13 @@ private fun ReviewScreen(matchId: Long, vm: MainViewModel, nav: NavHostControlle
             }
             GoalMap(events, current.opponent, Modifier.fillMaxWidth())
             ReviewEditor(current, vm)
+            FilledTonalButton(
+                onClick = { pdfExportLauncher.launch(MatchPdfExporter.fileName(current)) },
+                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
+            ) { Text("Download match summary (PDF)") }
+            exportMessage?.takeIf { it.startsWith("PDF") }?.let {
+                Text(it, style = MaterialTheme.typography.bodySmall)
+            }
         }
 
         if (reviewSection == ReviewSection.DATA) {
@@ -1712,12 +1719,6 @@ private fun ReviewScreen(matchId: Long, vm: MainViewModel, nav: NavHostControlle
             },
             modifier = Modifier.fillMaxWidth()
         ) { Text("Export match data (CSV)") }
-        FilledTonalButton(
-            onClick = {
-                pdfExportLauncher.launch(MatchPdfExporter.fileName(current))
-            },
-            modifier = Modifier.fillMaxWidth()
-        ) { Text("Download match summary (PDF)") }
         OutlinedButton(
             onClick = { nav.navigate("backup") },
             modifier = Modifier.fillMaxWidth()
