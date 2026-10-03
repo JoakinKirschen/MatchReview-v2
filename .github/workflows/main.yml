@@ -296,6 +296,26 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
 
+      # Room writes the schema of every database version to app/schemas during the build.
+      # The committed files document each version and must match the entities.
+      - name: Check Room schemas are committed
+        if: always() && steps.build.outcome == 'success'
+        shell: bash
+        run: |
+          changed="$(git status --porcelain --untracked-files=all -- app/schemas)"
+          if [[ -z "$changed" ]]; then
+            echo "Room schemas match the committed files."
+            exit 0
+          fi
+          echo "::error::Room schema files are missing or out of date. Commit the files under app/schemas."
+          echo "$changed"
+          git status --porcelain --untracked-files=all -- app/schemas | awk '{print $2}' | while read -r file; do
+            echo "===== BEGIN $file ====="
+            cat "$file"
+            echo "===== END $file ====="
+          done
+          exit 1
+
       # Keep the concise compiler report at the very end of the failed job.
       - name: Fail when APK build failed
         if: always() && steps.build.outcome == 'failure'

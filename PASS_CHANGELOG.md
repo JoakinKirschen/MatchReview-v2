@@ -1,7 +1,7 @@
 # MatchReview Pass Changelog
 
 This is the **single source of truth** for implementation-pass notes and change tracking.
-It consolidates implementation notes for Passes 1–51.
+It consolidates implementation notes for Passes 1–52.
 
 ## How to maintain this file
 
@@ -37,7 +37,7 @@ For every future development pass:
 
 | Pass | Status | Planned change | Version impact |
 |---:|---|---|---|
-| 52 | Not scheduled | Add the next approved recommendation here | To be determined |
+| 53 | Not scheduled | Add the next approved recommendation here | To be determined |
 
 ## Documentation changes
 
@@ -112,6 +112,7 @@ For every future development pass:
 | 49 | [Goal position and goal map](#pass-49-goal-position-and-goal-map) |
 | 50 | [Team logo and richer PDF summary](#pass-50-team-logo-and-richer-pdf-summary) |
 | 51 | [Editable match details and review fixes](#pass-51-editable-match-details-and-review-fixes) |
+| 52 | [Review follow-ups](#pass-52-review-follow-ups) |
 
 ---
 
@@ -1246,3 +1247,20 @@ begin.
 
 ### Tests and verification
 - Database upgrade test now covers migration 4 → 5.
+
+## Pass 52 — Review follow-ups
+
+**Status:** Completed  
+**Completed:** 2026-10-03  
+**Version impact:** App only; database unchanged
+
+### Added or changed
+- The dashboard's completed-match summary can be limited to one team. "All real teams" leaves out the practice team.
+- An unconfirmed substitution round is saved on the device and reopened after the app is closed or the screen rotates, as long as the lineup has not changed in the meantime.
+- Imported-video tags (video positions) are listed separately from match-time events in the review timeline and the PDF, and are no longer mixed into the live timeline.
+- The generated Room schema files are committed under `app/schemas`; CI fails when they are out of date.
+- Replaced the deprecated back-arrow icon with the auto-mirrored version.
+- Workflow actions moved to versions that run on Node 24.
+
+### Tests and verification
+- Added `SubstitutionDraftCodecTest` and team-filter tests in `SeasonSummaryRulesTest`.
