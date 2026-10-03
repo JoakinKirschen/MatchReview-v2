@@ -137,9 +137,14 @@ class MainActivity : ComponentActivity() {
 fun MatchReviewApp(
     vm: MainViewModel = viewModel(),
     openLiveMatchId: Long? = null,
-    onLiveMatchOpened: () -> Unit = {}
+    onLiveMatchOpened: () -> Unit = {},
+    /** A screen to open right away, for example "lineup/3"; used by the screenshot test. */
+    initialRoute: String? = null
 ) {
     val nav = rememberNavController()
+    LaunchedEffect(initialRoute) {
+        initialRoute?.let { nav.navigate(it) }
+    }
     LaunchedEffect(openLiveMatchId) {
         openLiveMatchId?.let { matchId ->
             nav.navigate("live/$matchId") { launchSingleTop = true }

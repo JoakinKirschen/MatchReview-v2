@@ -7,6 +7,11 @@ on:
       - master
   pull_request:
   workflow_dispatch:
+    inputs:
+      screenshots:
+        description: "Render the main screens and print them as base64 PNG at the end of the log"
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -191,6 +196,9 @@ jobs:
         if: steps.build.outcome == 'success'
         continue-on-error: true
         shell: bash
+        env:
+          # ScreenshotTest only renders when this is 1.
+          SCREENSHOTS: ${{ inputs.screenshots && '1' || '' }}
         run: |
           set +e
 
@@ -325,6 +333,18 @@ jobs:
             echo "===== END $file ====="
           done
           exit 1
+
+      - name: Print screenshots
+        if: always() && inputs.screenshots
+        shell: bash
+        run: |
+          shopt -s nullglob
+          for file in app/build/screenshots/*.png; do
+            echo "===== BEGIN $file ====="
+            base64 -w 0 "$file"
+            echo
+            echo "===== END $file ====="
+          done
 
       # Keep the concise compiler report at the very end of the failed job.
       - name: Fail when APK build failed
