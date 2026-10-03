@@ -277,6 +277,20 @@ interface MatchDao {
     @Insert suspend fun insertClockSegment(segment: MatchClockSegment): Long
     @Update suspend fun updateClockSegment(segment: MatchClockSegment)
 
+    @Query("""
+        SELECT pp.* FROM player_participations pp
+        INNER JOIN matches m ON m.id = pp.matchId
+        WHERE m.teamId = :teamId
+    """)
+    fun observeTeamParticipations(teamId: Long): Flow<List<PlayerParticipation>>
+
+    @Query("""
+        SELECT e.* FROM events e
+        INNER JOIN matches m ON m.id = e.matchId
+        WHERE m.teamId = :teamId AND e.type IN ('OUR_GOAL', 'KEEPER_SAVE')
+    """)
+    fun observeTeamStatEvents(teamId: Long): Flow<List<MatchEvent>>
+
     @Query("SELECT * FROM player_participations WHERE matchId = :matchId ORDER BY startMatchTimeMs, id")
     fun observeParticipations(matchId: Long): Flow<List<PlayerParticipation>>
 

@@ -705,7 +705,9 @@ internal fun BenchPanel(
     onDragEnd: (Long, Offset) -> Unit,
     onDragCancel: () -> Unit,
     subtitleFor: (Long) -> String? = { null },
-    canDrag: (Long) -> Boolean = { true }
+    canDrag: (Long) -> Boolean = { true },
+    /** Marks players who should get time on the pitch next. */
+    highlightFor: (Long) -> Boolean = { false }
 ) {
     Surface(
         color = if (isDropTarget) MaterialTheme.colorScheme.secondaryContainer
@@ -736,7 +738,7 @@ internal fun BenchPanel(
                         Column(
                             Modifier
                                 .testTag(LineupTestTags.benchPlayer(player.id))
-                                .width(54.dp)
+                                .width(60.dp)
                                 .alpha(
                                     when {
                                         draggingPlayerId == player.id -> 0.18f
@@ -769,8 +771,11 @@ internal fun BenchPanel(
                             horizontalAlignment = Alignment.CenterHorizontally
                         ) {
                             Box(
-                                Modifier.size(38.dp).clip(CircleShape)
-                                    .background(MaterialTheme.colorScheme.secondaryContainer),
+                                Modifier.size(44.dp).clip(CircleShape)
+                                    .background(
+                                        if (highlightFor(player.id)) Color(0xFFFFC247)
+                                        else MaterialTheme.colorScheme.secondaryContainer
+                                    ),
                                 contentAlignment = Alignment.Center
                             ) {
                                 Text(
@@ -789,6 +794,7 @@ internal fun BenchPanel(
                                 Text(
                                     it,
                                     style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = if (highlightFor(player.id)) FontWeight.Bold else null,
                                     maxLines = 1
                                 )
                             }

@@ -14,8 +14,12 @@ import be.matchreview.app.domain.LiveCommandGate
 import be.matchreview.app.domain.SubstitutionDraftCodec
 import be.matchreview.app.domain.MatchFormat
 import be.matchreview.app.domain.MatchFormatMemory
+import be.matchreview.app.domain.PlayerSeasonStatsRules
+import be.matchreview.app.domain.BackupReminderRules
+import be.matchreview.app.ui.ThemeMode
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
@@ -42,6 +46,23 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _lastBackupIncludedMedia =
         MutableStateFlow(backupPreferences.getBoolean("last_success_included_media", false))
     val lastBackupIncludedMedia: StateFlow<Boolean> = _lastBackupIncludedMedia.asStateFlow()
+    private val _lastFinishedMatchEpochMs = MutableStateFlow(
+        backupPreferences.getLong("last_finished_match_epoch_ms", 0L).takeIf { it > 0L }
+    )
+    /** True when a match finished after the last successful backup. */
+    val backupDue: StateFlow<Boolean> = combine(_lastBackupEpochMs, _lastFinishedMatchEpochMs) { backup, finished ->
+        BackupReminderRules.isDue(backup, finished)
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, false)
+
+    private val displayPreferences =
+        application.getSharedPreferences("matchreview_display", 0)
+    private val _themeMode = MutableStateFlow(ThemeMode.fromName(displayPreferences.getString("theme", null)))
+    val themeMode: StateFlow<ThemeMode> = _themeMode.asStateFlow()
+
+    fun setThemeMode(mode: ThemeMode) {
+        displayPreferences.edit().putString("theme", mode.name).apply()
+        _themeMode.value = mode
+    }
 
     private val draftPreferences =
         application.getSharedPreferences("matchreview_live_drafts", 0)
@@ -111,6 +132,21 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun clockSegments(matchId: Long) = repository.clockSegments(matchId)
     fun participations(matchId: Long) = repository.participations(matchId)
     fun recordings(matchId: Long) = repository.recordings(matchId)
+
+    /** Minutes, goals, assists and saves per player over the team's played matches. */
+    fun seasonStats(teamId: Long) = combine(
+        repository.players(teamId),
+        repository.matches,
+        repository.teamParticipations(teamId),
+        repository.teamStatEvents(teamId)
+    ) { players, matches, participations, events ->
+        PlayerSeasonStatsRules.compute(
+            players,
+            matches.filter { it.teamId == teamId },
+            participations,
+            events
+        )
+    }
 
     fun ensureVideoEventLinks(matchId: Long) =
         viewModelScope.launch { repository.mapUnlinkedEvents(matchId) }
@@ -333,7 +369,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun finishLiveMatch(matchId: Long, done: () -> Unit = {}) = viewModelScope.launch {
-        repository.finishLiveMatch(matchId, SystemClock.elapsedRealtime(), System.currentTimeMillis())
+        val finishedAt = System.currentTimeMillis()
+        repository.finishLiveMatch(matchId, SystemClock.elapsedRealtime(), finishedAt)
+        backupPreferences.edit().putLong("last_finished_match_epoch_ms", finishedAt).apply()
+        _lastFinishedMatchEpochMs.value = finishedAt
         done()
     }
 

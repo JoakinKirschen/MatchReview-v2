@@ -14,6 +14,8 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -40,6 +42,9 @@ import be.matchreview.app.domain.ClockRecoveryRules
 import be.matchreview.app.domain.ClockRecoveryConfidence
 import be.matchreview.app.domain.GoalMouthGeometry
 import be.matchreview.app.domain.GoalkeeperRules
+import be.matchreview.app.domain.PlayingTimeRules
+import be.matchreview.app.domain.PeriodTimeRules
+import androidx.compose.runtime.saveable.rememberSaveable
 import be.matchreview.app.domain.TimelineGrouping
 import be.matchreview.app.domain.TimelineItem
 import be.matchreview.app.recording.CameraMatchPanel
@@ -130,6 +135,20 @@ fun LiveMatchScreen(
     val activePeriod = periods.firstOrNull { it.periodNumber == current.currentPeriod }
     val periodTimeMs = (matchTimeMs - (activePeriod?.startMatchTimeMs ?: matchTimeMs))
         .coerceAtLeast(0L)
+    val plannedPeriodMs = activePeriod?.plannedDurationMs ?: (current.periodDurationMinutes * 60_000L)
+    val periodTimeUp = current.status in setOf(MatchStatus.LIVE, MatchStatus.PAUSED) &&
+        PeriodTimeRules.isOver(periodTimeMs, plannedPeriodMs)
+
+    // Vibrate once when the planned period time is reached; the clock itself keeps running.
+    var alertedPeriod by rememberSaveable { mutableIntStateOf(0) }
+    LaunchedEffect(periodTimeUp, current.currentPeriod) {
+        if (current.status == MatchStatus.LIVE &&
+            PeriodTimeRules.shouldAlert(periodTimeMs, plannedPeriodMs, alertedPeriod == current.currentPeriod)
+        ) {
+            MatchAlerts.vibratePeriodEnd(context)
+            alertedPeriod = current.currentPeriod
+        }
+    }
 
     val teamName = teams.firstOrNull { it.id == current.teamId }?.name ?: "Our team"
     val playersById = players.associateBy { it.id }
@@ -170,6 +189,8 @@ fun LiveMatchScreen(
     var editGoal by remember { mutableStateOf<MatchEvent?>(null) }
     var showOpponentGoalConfirmation by remember { mutableStateOf(false) }
     var showScoreCorrection by remember { mutableStateOf(false) }
+    var showMatchMenu by remember { mutableStateOf(false) }
+    var showDetailsEditor by remember { mutableStateOf(false) }
     var showFinishConfirmation by remember { mutableStateOf(false) }
     var showLeaveConfirmation by remember { mutableStateOf(false) }
     var selectedVideoEvent by remember { mutableStateOf<MatchEvent?>(null) }
@@ -307,7 +328,28 @@ fun LiveMatchScreen(
                         )
                         Text(statusLabel(current), style = MaterialTheme.typography.labelSmall)
                     }
-                    TextButton(onClick = { showScoreCorrection = true }) { Text("Correct") }
+                    // Rare corrections live in a menu so they are not tapped by accident.
+                    Box {
+                        IconButton(onClick = { showMatchMenu = true }) {
+                            Icon(Icons.Default.MoreVert, contentDescription = "More match options")
+                        }
+                        DropdownMenu(expanded = showMatchMenu, onDismissRequest = { showMatchMenu = false }) {
+                            DropdownMenuItem(
+                                text = { Text("Correct score") },
+                                onClick = {
+                                    showMatchMenu = false
+                                    showScoreCorrection = true
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Edit match details") },
+                                onClick = {
+                                    showMatchMenu = false
+                                    showDetailsEditor = true
+                                }
+                            )
+                        }
+                    }
                 }
             }
         },
@@ -342,6 +384,7 @@ fun LiveMatchScreen(
                 clockLabel = MatchClockCalculator.formatClock(matchTimeMs),
                 scoreLabel = "${current.ourScore}–${current.opponentScore}",
                 minutesLabel = { "${MatchClockCalculator.displayedWholeMinutes(playedMs(it))}'" },
+                playedMs = ::playedMs,
                 onDraftChanged = { draft ->
                     if (draft == null) vm.clearSubstitutionDraft(matchId)
                     else vm.saveSubstitutionDraft(matchId, draft)
@@ -373,8 +416,36 @@ fun LiveMatchScreen(
                 match = current,
                 teamName = teamName,
                 matchTimeMs = matchTimeMs,
-                periodTimeMs = periodTimeMs
+                periodTimeMs = periodTimeMs,
+                plannedPeriodMs = plannedPeriodMs
             )
+
+            if (periodTimeUp) {
+                Surface(
+                    color = Color(0xFFFFC247),
+                    contentColor = Color(0xFF1B1B1F),
+                    shape = RoundedCornerShape(10.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        Modifier.padding(start = 12.dp, end = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            "Period time reached • +${MatchClockCalculator.formatClock(
+                                PeriodTimeRules.overtimeMs(periodTimeMs, plannedPeriodMs)
+                            )}",
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.weight(1f)
+                        )
+                        TextButton(
+                            onClick = { showEndPeriodConfirmation = true },
+                            colors = ButtonDefaults.textButtonColors(contentColor = Color(0xFF1B1B1F)),
+                            modifier = Modifier.heightIn(min = 48.dp)
+                        ) { Text("End period", fontWeight = FontWeight.Bold) }
+                    }
+                }
+            }
 
             RecordingStatusChip(
                 state = cameraState,
@@ -471,7 +542,13 @@ fun LiveMatchScreen(
                     contentPadding = PaddingValues(horizontal = 2.dp),
                     horizontalArrangement = Arrangement.spacedBy(5.dp)
                 ) {
-                    items(bench, key = { it.playerId }) { placement ->
+                    val leastPlayedBench = PlayingTimeRules.leastPlayed(eligibleBenchIds, ::playedMs)
+                    items(
+                        bench.sortedWith(
+                            compareBy<MatchLineupPlacement>({ it.playerId !in eligibleBenchIds }, { playedMs(it.playerId) })
+                        ),
+                        key = { it.playerId }
+                    ) { placement ->
                         playersById[placement.playerId]?.let { player ->
                             val state = squadById[player.id]?.state
                             BenchMinuteCard(
@@ -487,6 +564,7 @@ fun LiveMatchScreen(
                                     PlayerMatchState.DISMISSED -> "Sent off"
                                     else -> null
                                 },
+                                highlighted = player.id in leastPlayedBench,
                                 onClick = { selectedPlayerId = player.id }
                             )
                         }
@@ -741,6 +819,18 @@ fun LiveMatchScreen(
             onSave = { ours, opponents ->
                 vm.correctScore(matchId, ours, opponents)
                 showScoreCorrection = false
+            }
+        )
+    }
+
+    if (showDetailsEditor) {
+        MatchDetailsDialog(
+            match = current,
+            onDismiss = { showDetailsEditor = false },
+            onSave = { opponent, date, venue, competition, home ->
+                vm.updateMatchDetails(matchId, opponent, date, venue, competition, home) {
+                    showDetailsEditor = false
+                }
             }
         )
     }
@@ -1212,7 +1302,13 @@ private fun eventSubtitle(event: MatchEvent, playersById: Map<Long, Player>): St
 }
 
 @Composable
-private fun LiveScoreboard(match: GameMatch, teamName: String, matchTimeMs: Long, periodTimeMs: Long) {
+private fun LiveScoreboard(
+    match: GameMatch,
+    teamName: String,
+    matchTimeMs: Long,
+    periodTimeMs: Long,
+    plannedPeriodMs: Long
+) {
     Card(
         colors = CardDefaults.cardColors(containerColor = Color(0xFFE3263F)),
         modifier = Modifier
@@ -1240,11 +1336,17 @@ private fun LiveScoreboard(match: GameMatch, teamName: String, matchTimeMs: Long
                     style = MaterialTheme.typography.headlineMedium,
                     fontWeight = FontWeight.Black
                 )
+                val overtime = PeriodTimeRules.overtimeMs(periodTimeMs, plannedPeriodMs)
                 Text(
-                    if (match.currentPeriod == 0) "Ready"
-                    else "Period ${match.currentPeriod}/${match.periodCount} • " +
-                        MatchClockCalculator.formatClock(periodTimeMs),
-                    color = Color.White.copy(alpha = 0.9f),
+                    when {
+                        match.currentPeriod == 0 -> "Ready"
+                        overtime > 0L -> "Period ${match.currentPeriod}/${match.periodCount} • " +
+                            "${MatchClockCalculator.formatClock(plannedPeriodMs)} +${MatchClockCalculator.formatClock(overtime)}"
+                        else -> "Period ${match.currentPeriod}/${match.periodCount} • " +
+                            MatchClockCalculator.formatClock(periodTimeMs)
+                    },
+                    color = if (overtime > 0L) Color(0xFFFFE08A) else Color.White.copy(alpha = 0.9f),
+                    fontWeight = if (overtime > 0L) FontWeight.Bold else null,
                     style = MaterialTheme.typography.labelSmall
                 )
             }
@@ -1347,6 +1449,7 @@ private fun BenchMinuteCard(
     minutes: Long,
     enabled: Boolean,
     stateLabel: String?,
+    highlighted: Boolean,
     onClick: () -> Unit
 ) {
     Surface(
@@ -1361,8 +1464,12 @@ private fun BenchMinuteCard(
         ) {
             Surface(
                 shape = CircleShape,
-                color = if (enabled) MaterialTheme.colorScheme.secondaryContainer
-                else MaterialTheme.colorScheme.outlineVariant,
+                color = when {
+                    !enabled -> MaterialTheme.colorScheme.outlineVariant
+                    highlighted -> Color(0xFFFFC247)
+                    else -> MaterialTheme.colorScheme.secondaryContainer
+                },
+                contentColor = if (highlighted) Color(0xFF1B1B1F) else contentColorFor(MaterialTheme.colorScheme.secondaryContainer),
                 modifier = Modifier.size(28.dp)
             ) {
                 Box(contentAlignment = Alignment.Center) {

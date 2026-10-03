@@ -41,6 +41,7 @@ import androidx.navigation.NavHostController
 import androidx.navigation.compose.*
 import be.matchreview.app.data.*
 import be.matchreview.app.ui.MatchReviewTheme
+import be.matchreview.app.ui.ThemeMode
 import be.matchreview.app.domain.MatchExportFormatter
 import be.matchreview.app.domain.ExportPrivacyOptions
 import be.matchreview.app.domain.MediaIntegrityRules
@@ -52,6 +53,7 @@ import be.matchreview.app.domain.BackupEstimate
 import be.matchreview.app.domain.MatchSetupRules
 import be.matchreview.app.domain.VideoEventRules
 import be.matchreview.app.domain.GoalMouthGeometry
+import be.matchreview.app.domain.GoalSummaryRules
 import be.matchreview.app.domain.TimelineGrouping
 import be.matchreview.app.domain.TimelineItem
 import androidx.activity.result.PickVisualMediaRequest
@@ -76,7 +78,11 @@ private enum class ReviewSection(val label: String) {
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContent { MatchReviewTheme { MatchReviewApp() } }
+        setContent {
+            val vm: MainViewModel = viewModel()
+            val themeMode by vm.themeMode.collectAsStateWithLifecycle()
+            MatchReviewTheme(themeMode) { MatchReviewApp(vm) }
+        }
     }
 }
 
@@ -187,6 +193,7 @@ private fun DashboardScreen(vm: MainViewModel, nav: NavHostController) {
     val matches by vm.matches.collectAsStateWithLifecycle()
     val activeMatch by vm.activeMatch.collectAsStateWithLifecycle()
     val lastBackupEpochMs by vm.lastBackupEpochMs.collectAsStateWithLifecycle()
+    val backupDue by vm.backupDue.collectAsStateWithLifecycle()
     var summaryTeamId by rememberSaveable { mutableLongStateOf(0L) }
     LaunchedEffect(teams) {
         if (teams.isNotEmpty() && summaryTeamId != 0L && teams.none { it.id == summaryTeamId }) summaryTeamId = 0L
@@ -240,13 +247,16 @@ private fun DashboardScreen(vm: MainViewModel, nav: NavHostController) {
             }
         }
         item {
-            val backupText = lastBackupEpochMs?.let {
-                "Last backup ${SimpleDateFormat("dd MMM, HH:mm", Locale.getDefault()).format(Date(it))}"
-            } ?: "No successful backup yet"
+            val backupText = when {
+                backupDue -> "A match finished since your last backup. Back up now to keep it safe."
+                else -> lastBackupEpochMs?.let {
+                    "Last backup ${SimpleDateFormat("dd MMM, HH:mm", Locale.getDefault()).format(Date(it))}"
+                } ?: "No successful backup yet"
+            }
             Card(
                 modifier = Modifier.fillMaxWidth().clickable { nav.navigate("backup") },
                 colors = CardDefaults.cardColors(
-                    containerColor = if (lastBackupEpochMs == null) {
+                    containerColor = if (lastBackupEpochMs == null || backupDue) {
                         MaterialTheme.colorScheme.errorContainer
                     } else {
                         MaterialTheme.colorScheme.secondaryContainer
@@ -307,6 +317,28 @@ private fun DashboardScreen(vm: MainViewModel, nav: NavHostController) {
         items(matches.take(5)) { match ->
             MatchCard(match, teams.firstOrNull { it.id == match.teamId }?.name ?: "Team") {
                 nav.navigate(matchDestination(match))
+            }
+        }
+        item {
+            val themeMode by vm.themeMode.collectAsStateWithLifecycle()
+            Card(Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text("Display", style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        "Outdoor uses extra contrast for bright sunlight on the sideline.",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        items(ThemeMode.entries) { mode ->
+                            FilterChip(
+                                selected = themeMode == mode,
+                                onClick = { vm.setThemeMode(mode) },
+                                label = { Text(mode.label) },
+                                modifier = Modifier.heightIn(min = 48.dp)
+                            )
+                        }
+                    }
+                }
             }
         }
     }
@@ -706,6 +738,8 @@ private fun NewTeamScreen(vm: MainViewModel, nav: NavHostController) {
 private fun TeamScreen(teamId: Long, vm: MainViewModel, nav: NavHostController) {
     val team = vm.teams.collectAsStateWithLifecycle().value.firstOrNull { it.id == teamId }
     val players by vm.playersForTeam(teamId).collectAsStateWithLifecycle(initialValue = emptyList())
+    val seasonStatsFlow = remember(teamId) { vm.seasonStats(teamId) }
+    val seasonStats by seasonStatsFlow.collectAsStateWithLifecycle(initialValue = emptyList())
     var showAdd by remember { mutableStateOf(false) }
     var editingPlayer by remember { mutableStateOf<Player?>(null) }
     var showDeleteTeam by remember { mutableStateOf(false) }
@@ -823,6 +857,9 @@ private fun TeamScreen(teamId: Long, vm: MainViewModel, nav: NavHostController) 
                     modifier = Modifier.weight(1f)
                 ) { Text("Remove team") }
             }
+        }
+        if (seasonStats.any { it.matchesPlayed > 0 }) {
+            item { SeasonStatsCard(seasonStats) }
         }
         if (players.isEmpty()) item { EmptyCard("No players yet.") }
         items(players, key = { it.id }) { player ->
@@ -942,6 +979,61 @@ private fun TeamScreen(teamId: Long, vm: MainViewModel, nav: NavHostController) 
                 dismissButton = {
                     TextButton(onClick = { showDeleteTeam = false }) { Text("Cancel") }
                 }
+            )
+        }
+    }
+}
+
+/** Minutes, goals, assists and saves per player; the fewest minutes are highlighted. */
+@Composable
+private fun SeasonStatsCard(stats: List<be.matchreview.app.domain.PlayerSeasonStats>) {
+    val fewestMinutes = stats.minOfOrNull { it.wholeMinutes } ?: 0L
+    Card(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text("Season stats", style = MaterialTheme.typography.titleMedium)
+            Text(
+                "Played and live matches. Players with the fewest minutes are marked so playing time can be shared fairly.",
+                style = MaterialTheme.typography.bodySmall
+            )
+            Row(Modifier.fillMaxWidth()) {
+                Text("Player", Modifier.weight(1f), style = MaterialTheme.typography.labelMedium)
+                listOf("M", "Min", "G", "A", "S").forEach {
+                    Text(
+                        it,
+                        Modifier.width(40.dp),
+                        style = MaterialTheme.typography.labelMedium,
+                        textAlign = androidx.compose.ui.text.style.TextAlign.End
+                    )
+                }
+            }
+            HorizontalDivider()
+            stats.forEach { row ->
+                val fewest = stats.size > 1 && row.wholeMinutes == fewestMinutes
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        listOfNotNull(
+                            row.player.shirtNumber.takeIf { it > 0 }?.let { "#$it" },
+                            row.player.name
+                        ).joinToString(" "),
+                        Modifier.weight(1f),
+                        maxLines = 1,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                        color = if (fewest) MaterialTheme.colorScheme.error else LocalContentColor.current,
+                        fontWeight = if (fewest) FontWeight.Bold else FontWeight.Normal
+                    )
+                    listOf(row.matchesPlayed.toLong(), row.wholeMinutes, row.goals.toLong(), row.assists.toLong(), row.saves.toLong())
+                        .forEach {
+                            Text(
+                                it.toString(),
+                                Modifier.width(40.dp),
+                                textAlign = androidx.compose.ui.text.style.TextAlign.End
+                            )
+                        }
+                }
+            }
+            Text(
+                "M matches • Min minutes • G goals • A assists • S saves",
+                style = MaterialTheme.typography.labelSmall
             )
         }
     }
@@ -1367,6 +1459,7 @@ private fun ReviewScreen(matchId: Long, vm: MainViewModel, nav: NavHostControlle
     val recordings by vm.recordings(matchId).collectAsStateWithLifecycle(initialValue = emptyList())
     val allPlayers by vm.players.collectAsStateWithLifecycle()
     val teams by vm.teams.collectAsStateWithLifecycle()
+    val backupDue by vm.backupDue.collectAsStateWithLifecycle()
     var showDetailsEditor by remember { mutableStateOf(false) }
     var goalPositionEvent by remember { mutableStateOf<MatchEvent?>(null) }
     val current = match ?: return Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
@@ -1476,6 +1569,24 @@ private fun ReviewScreen(matchId: Long, vm: MainViewModel, nav: NavHostControlle
                 )
             }
             TextButton(onClick = { showDetailsEditor = true }) { Text("Edit") }
+        }
+        if (current.status == MatchStatus.FINISHED && backupDue) {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    Modifier.fillMaxWidth().padding(start = 12.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        "This match is not in a backup yet.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.weight(1f)
+                    )
+                    TextButton(onClick = { nav.navigate("backup") }) { Text("Back up now") }
+                }
+            }
         }
         if (integrityIssues.isNotEmpty()) {
             Card(
@@ -1676,6 +1787,23 @@ private fun ReviewScreen(matchId: Long, vm: MainViewModel, nav: NavHostControlle
         }
 
         if (reviewSection == ReviewSection.SUMMARY) {
+            val goalLines = GoalSummaryRules.lines(
+                events,
+                allPlayers.associate { it.id to it.name },
+                team?.name ?: "Our team",
+                current.opponent
+            )
+            if (goalLines.isNotEmpty()) {
+                Card(Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Text(
+                            "Goals • ${current.ourScore}–${current.opponentScore}",
+                            style = MaterialTheme.typography.titleMedium
+                        )
+                        goalLines.forEach { Text(it, style = MaterialTheme.typography.bodyMedium) }
+                    }
+                }
+            }
             val saves = events.filter { it.type == "KEEPER_SAVE" }
             Card(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {

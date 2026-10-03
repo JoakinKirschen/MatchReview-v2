@@ -23,6 +23,7 @@ import be.matchreview.app.data.MatchLineupPlacement
 import be.matchreview.app.data.Player
 import be.matchreview.app.domain.FormationLayout
 import be.matchreview.app.domain.LineupDragDropRules
+import be.matchreview.app.domain.PlayingTimeRules
 import be.matchreview.app.domain.SubstitutionDrop
 import be.matchreview.app.domain.SubstitutionPlanRules
 import kotlin.math.roundToInt
@@ -53,6 +54,7 @@ internal fun SubstitutionModePanel(
     clockLabel: String,
     scoreLabel: String,
     minutesLabel: (Long) -> String,
+    playedMs: (Long) -> Long,
     /** Called with the current plan, or null when it no longer differs from the live lineup. */
     onDraftChanged: (List<MatchLineupPlacement>?) -> Unit,
     onCancel: () -> Unit,
@@ -78,17 +80,21 @@ internal fun SubstitutionModePanel(
         FormationLayout.slots(match.formation, match.playersOnPitch)
     }
     val onPitch = plan.values.filter { it.onPitch }
+    fun canMove(playerId: Long): Boolean =
+        playerId in eligibleBenchIds || originalById[playerId]?.onPitch == true
+
+    // Substitutes who played the least come first and are marked, so time is shared fairly.
     val bench = plan.values.filterNot { it.onPitch }
         .mapNotNull { playersById[it.playerId] }
-        .sortedWith(compareBy<Player>({ it.shirtNumber <= 0 }, { it.shirtNumber }, { it.name }))
+        .sortedWith(
+            compareBy<Player>({ !canMove(it.id) }, { playedMs(it.id) }, { it.shirtNumber <= 0 }, { it.shirtNumber }, { it.name })
+        )
+    val leastPlayedBench = PlayingTimeRules.leastPlayed(bench.map { it.id }.filter(::canMove), playedMs)
     val changes = SubstitutionPlanRules.changes(original, plan)
     val currentOnDraftChanged by rememberUpdatedState(onDraftChanged)
     LaunchedEffect(plan) {
         currentOnDraftChanged(if (changes.isEmpty) null else plan.values.toList())
     }
-
-    fun canMove(playerId: Long): Boolean =
-        playerId in eligibleBenchIds || originalById[playerId]?.onPitch == true
 
     /** Where [playerId] would go if released at [pointer]; null when not over the pitch. */
     fun dropAt(playerId: Long, pointer: Offset): SubstitutionDrop? {
@@ -231,7 +237,8 @@ internal fun SubstitutionModePanel(
                     onDragEnd = ::finishDrag,
                     onDragCancel = { drag = null },
                     subtitleFor = { id -> if (canMove(id)) minutesLabel(id) else "Out" },
-                    canDrag = ::canMove
+                    canDrag = ::canMove,
+                    highlightFor = { it in leastPlayedBench }
                 )
             }
 

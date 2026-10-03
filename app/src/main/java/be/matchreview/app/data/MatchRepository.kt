@@ -20,6 +20,8 @@ class MatchRepository(private val dao: MatchDao) {
     fun clockSegments(matchId: Long) = dao.observeClockSegments(matchId)
     fun participations(matchId: Long) = dao.observeParticipations(matchId)
     fun recordings(matchId: Long) = dao.observeRecordings(matchId)
+    fun teamParticipations(teamId: Long) = dao.observeTeamParticipations(teamId)
+    fun teamStatEvents(teamId: Long) = dao.observeTeamStatEvents(teamId)
 
     suspend fun ensureMatchSquad(matchId: Long, teamId: Long) {
         val existingPlayerIds = dao.getMatchSquadOnce(matchId).mapTo(mutableSetOf()) { it.playerId }

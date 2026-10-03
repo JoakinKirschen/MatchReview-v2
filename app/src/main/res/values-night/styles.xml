@@ -1,0 +1,9 @@
+<resources>
+    <!-- Dark window background so dark mode does not flash white while the app starts. -->
+    <style name="Theme.MatchReview" parent="android:style/Theme.Material.NoActionBar">
+        <item name="android:fontFamily">sans</item>
+        <item name="android:windowBackground">@android:color/black</item>
+        <item name="android:statusBarColor">#102A43</item>
+        <item name="android:navigationBarColor">#102A43</item>
+    </style>
+</resources>

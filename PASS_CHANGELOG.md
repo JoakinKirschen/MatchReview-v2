@@ -1,7 +1,7 @@
 # MatchReview Pass Changelog
 
 This is the **single source of truth** for implementation-pass notes and change tracking.
-It consolidates implementation notes for Passes 1–54.
+It consolidates implementation notes for Passes 1–55.
 
 ## How to maintain this file
 
@@ -37,7 +37,7 @@ For every future development pass:
 
 | Pass | Status | Planned change | Version impact |
 |---:|---|---|---|
-| 55 | Not scheduled | Add the next approved recommendation here | To be determined |
+| 56 | Not scheduled | Add the next approved recommendation here | To be determined |
 
 ## Documentation changes
 
@@ -122,6 +122,7 @@ For every future development pass:
 | 52 | [Review follow-ups](#pass-52-review-follow-ups) |
 | 53 | [Full-screen substitution mode](#pass-53-full-screen-substitution-mode) |
 | 54 | [Lineup fixes, remembered format, logo files, PDF sharing](#pass-54-lineup-fixes-remembered-format-logo-files-pdf-sharing) |
+| 55 | [Coaching insights and sideline comfort](#pass-55-coaching-insights-and-sideline-comfort) |
 
 ---
 
@@ -1307,3 +1308,24 @@ begin.
 
 ### Tests and verification
 - Added `LineupDragAndDropTest` cases for 8v8 at 6/8 after auto-place and for swapping onto a full pitch, plus `MatchFormatMemoryTest`.
+
+## Pass 55 — Coaching insights and sideline comfort
+
+**Status:** Completed  
+**Completed:** 2026-10-03  
+**Version impact:** App only; database unchanged
+
+### Added or changed
+- **Season stats** on the team page: matches, minutes, goals, assists and saves per player across played and live matches; the players with the fewest minutes are marked.
+- **Fair playing time:** in substitution mode and on the live bench, available substitutes are ordered by minutes played and those with the fewest minutes are highlighted in amber.
+- **Goal list** ("12' Sam (assist Lee)") under the score in the PDF summary and in the review summary. Long PDF values now wrap.
+- **Live menu:** "Correct score" moved from the top bar into a ⋮ menu, next to a new "Edit match details".
+- **Period-end reminder:** when a period reaches its planned length the phone vibrates once, a banner offers "End period", and the scoreboard shows the added time (for example 15:00 +1:23). The clock keeps running.
+- **Backup reminder:** after a match finishes, the dashboard and the match review show "Back up now" until a backup is made.
+- **Display setting** on the dashboard: System, Light, Dark or Outdoor (high contrast for bright sunlight). Dark mode no longer flashes a white window at start-up. Bench players in the lineup and substitution screens have larger touch targets.
+
+### Tests and verification
+- Added `MatchInsightsRulesTest` covering season stats, least-played substitutes, goal lines, the period alert and the backup reminder.
+
+### Deferred or known limitations
+- The period reminder works while the live screen is open (it stays on during a match); there is no background notification.
