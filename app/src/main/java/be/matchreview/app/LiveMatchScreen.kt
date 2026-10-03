@@ -181,6 +181,7 @@ fun LiveMatchScreen(
     var showEndPeriodConfirmation by remember { mutableStateOf(false) }
     var liveActionLocked by remember { mutableStateOf(false) }
     var substitutionMode by remember { mutableStateOf(false) }
+    var restoredSubstitutionPlan by remember { mutableStateOf<List<MatchLineupPlacement>?>(null) }
     var goalPlacement by remember { mutableStateOf<GoalPlacementRequest?>(null) }
     var keeperChoiceOpen by remember { mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
@@ -252,6 +253,28 @@ fun LiveMatchScreen(
         substitutionMode = true
     }
 
+    fun leaveSubstitutionMode() {
+        substitutionMode = false
+        restoredSubstitutionPlan = null
+        vm.clearSubstitutionDraft(matchId)
+    }
+
+    // Continue a round that was open when the app closed, if the lineup is unchanged.
+    LaunchedEffect(matchId, placements.isNotEmpty()) {
+        if (placements.isEmpty() || substitutionMode) return@LaunchedEffect
+        val draft = vm.substitutionDraft(matchId) ?: return@LaunchedEffect
+        if (liveActionsEnabled &&
+            be.matchreview.app.domain.SubstitutionDraftCodec.fitsLineup(draft, placements)
+        ) {
+            restoredSubstitutionPlan = draft
+            tab = LiveTab.MATCH
+            substitutionMode = true
+            snackbarHostState.showSnackbar("Unconfirmed substitutions restored")
+        } else {
+            vm.clearSubstitutionDraft(matchId)
+        }
+    }
+
     LaunchedEffect(events, pendingQuickGoalEditId) {
         val eventId = pendingQuickGoalEditId ?: return@LaunchedEffect
         events.firstOrNull { it.id == eventId }?.let {
@@ -262,8 +285,8 @@ fun LiveMatchScreen(
 
     BackHandler { showLeaveConfirmation = true }
     // Registered later, so it wins while substitution mode is open.
-    BackHandler(enabled = substitutionMode) { substitutionMode = false }
-    LaunchedEffect(liveActionsEnabled) { if (!liveActionsEnabled) substitutionMode = false }
+    BackHandler(enabled = substitutionMode) { leaveSubstitutionMode() }
+    LaunchedEffect(liveActionsEnabled) { if (!liveActionsEnabled && substitutionMode) leaveSubstitutionMode() }
 
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
@@ -393,14 +416,19 @@ fun LiveMatchScreen(
                 SubstitutionModePanel(
                     match = current,
                     livePlacements = placements,
+                    restoredPlan = restoredSubstitutionPlan,
                     playersById = playersById,
                     eligibleBenchIds = eligibleBenchIds,
                     minutesLabel = { "${MatchClockCalculator.displayedWholeMinutes(playedMs(it))}'" },
                     onMessage = { message -> scope.launch { snackbarHostState.showSnackbar(message) } },
-                    onCancel = { substitutionMode = false },
+                    onDraftChanged = { draft ->
+                        if (draft == null) vm.clearSubstitutionDraft(matchId)
+                        else vm.saveSubstitutionDraft(matchId, draft)
+                    },
+                    onCancel = ::leaveSubstitutionMode,
                     onConfirm = { plan ->
                         vm.applySubstitutionRound(matchId, plan) { applied ->
-                            if (applied) substitutionMode = false
+                            if (applied) leaveSubstitutionMode()
                             scope.launch {
                                 snackbarHostState.showSnackbar(
                                     if (applied) "Lineup changes saved at ${MatchClockCalculator.formatClock(matchTimeMs)}"
@@ -477,7 +505,8 @@ fun LiveMatchScreen(
                 )
             } else {
                 MatchTimeline(
-                    events = events.sortedWith(
+                    // Tags on an imported video use video positions, not match time.
+                    events = events.filterNot(be.matchreview.app.domain.VideoEventRules::isImportedVideoTag).sortedWith(
                         compareByDescending<MatchEvent> { it.timestampMs }.thenByDescending { it.id }
                     ),
                     playersById = playersById,

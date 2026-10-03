@@ -17,7 +17,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.SportsSoccer
@@ -46,6 +46,7 @@ import be.matchreview.app.domain.ExportPrivacyOptions
 import be.matchreview.app.domain.MediaIntegrityRules
 import be.matchreview.app.domain.MatchIntegrityRules
 import be.matchreview.app.domain.SeasonSummaryRules
+import be.matchreview.app.domain.PracticeMatchRules
 import be.matchreview.app.domain.BackupEstimate
 import be.matchreview.app.domain.MatchSetupRules
 import be.matchreview.app.domain.VideoEventRules
@@ -110,7 +111,7 @@ fun MatchReviewApp(vm: MainViewModel = viewModel()) {
                         if (!isTopLevel) {
                             IconButton(onClick = { nav.navigateUp() }) {
                                 Icon(
-                                    Icons.Default.ArrowBack,
+                                    Icons.AutoMirrored.Filled.ArrowBack,
                                     contentDescription = stringResource(R.string.navigate_back)
                                 )
                             }
@@ -185,6 +186,10 @@ private fun DashboardScreen(vm: MainViewModel, nav: NavHostController) {
     val matches by vm.matches.collectAsStateWithLifecycle()
     val activeMatch by vm.activeMatch.collectAsStateWithLifecycle()
     val lastBackupEpochMs by vm.lastBackupEpochMs.collectAsStateWithLifecycle()
+    var summaryTeamId by rememberSaveable { mutableLongStateOf(0L) }
+    LaunchedEffect(teams) {
+        if (teams.isNotEmpty() && summaryTeamId != 0L && teams.none { it.id == summaryTeamId }) summaryTeamId = 0L
+    }
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(20.dp),
@@ -201,10 +206,33 @@ private fun DashboardScreen(vm: MainViewModel, nav: NavHostController) {
             }
         }
         item {
-            val summary = SeasonSummaryRules.summarize(matches)
+            // 0 = all real teams; the practice team only counts when picked explicitly.
+            val realTeams = teams.filterNot(PracticeMatchRules::isPracticeTeam)
+            val summaryTeamIds = if (summaryTeamId == 0L) {
+                realTeams.mapTo(mutableSetOf()) { it.id }
+            } else setOf(summaryTeamId)
+            val summary = SeasonSummaryRules.summarize(matches, summaryTeamIds)
             Card(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(14.dp)) {
                     Text("Completed matches", style = MaterialTheme.typography.titleMedium)
+                    if (teams.size > 1) {
+                        LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            item {
+                                FilterChip(
+                                    selected = summaryTeamId == 0L,
+                                    onClick = { summaryTeamId = 0L },
+                                    label = { Text(if (realTeams.size == teams.size) "All teams" else "All real teams") }
+                                )
+                            }
+                            items(teams, key = { it.id }) { team ->
+                                FilterChip(
+                                    selected = summaryTeamId == team.id,
+                                    onClick = { summaryTeamId = team.id },
+                                    label = { Text(team.name) }
+                                )
+                            }
+                        }
+                    }
                     Text("${summary.played} played • ${summary.won} won • ${summary.drawn} drawn • ${summary.lost} lost")
                     Text("Goals ${summary.goalsFor}-${summary.goalsAgainst}", style = MaterialTheme.typography.bodySmall)
                 }
@@ -1546,7 +1574,22 @@ private fun ReviewScreen(matchId: Long, vm: MainViewModel, nav: NavHostControlle
         Text("Event timeline", style = MaterialTheme.typography.titleLarge)
         if (events.isEmpty()) EmptyCard("Play the video and tag important moments.")
         val playersById = allPlayers.associateBy { it.id }
-        TimelineGrouping.group(events).forEach { item ->
+        // Live events use match time while imported-video tags use the video position, so
+        // they are listed separately instead of being sorted into one misleading order.
+        val (videoTags, matchEvents) = events
+            .sortedWith(compareBy<MatchEvent> { it.timestampMs }.thenBy { it.id })
+            .partition(VideoEventRules::isImportedVideoTag)
+        listOf(
+            Triple("Match events", "Times are match time.", TimelineGrouping.group(matchEvents)),
+            Triple(
+                "Imported video tags",
+                "Times are positions in the imported video.",
+                videoTags.map { TimelineItem.Single(it) }
+            )
+        ).filter { it.third.isNotEmpty() }.forEach { (sectionTitle, sectionHint, sectionItems) ->
+        Text(sectionTitle, style = MaterialTheme.typography.titleMedium)
+        Text(sectionHint, style = MaterialTheme.typography.bodySmall)
+        sectionItems.forEach { item ->
             if (item is TimelineItem.LineupChange) {
                 val first = item.events.first()
                 LineupChangeCard(
@@ -1607,6 +1650,7 @@ private fun ReviewScreen(matchId: Long, vm: MainViewModel, nav: NavHostControlle
                     }
                 }
             }
+        }
         }
         }
 

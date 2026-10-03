@@ -11,6 +11,7 @@ import be.matchreview.app.data.*
 import be.matchreview.app.domain.FormationSlot
 import be.matchreview.app.domain.MatchSetupRules
 import be.matchreview.app.domain.LiveCommandGate
+import be.matchreview.app.domain.SubstitutionDraftCodec
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -39,6 +40,23 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _lastBackupIncludedMedia =
         MutableStateFlow(backupPreferences.getBoolean("last_success_included_media", false))
     val lastBackupIncludedMedia: StateFlow<Boolean> = _lastBackupIncludedMedia.asStateFlow()
+
+    private val draftPreferences =
+        application.getSharedPreferences("matchreview_live_drafts", 0)
+
+    /** The unconfirmed substitution round for [matchId], if the app closed during one. */
+    fun substitutionDraft(matchId: Long): List<MatchLineupPlacement>? =
+        SubstitutionDraftCodec.decode(matchId, draftPreferences.getString(draftKey(matchId), null))
+
+    fun saveSubstitutionDraft(matchId: Long, plan: List<MatchLineupPlacement>) {
+        draftPreferences.edit().putString(draftKey(matchId), SubstitutionDraftCodec.encode(plan)).apply()
+    }
+
+    fun clearSubstitutionDraft(matchId: Long) {
+        draftPreferences.edit().remove(draftKey(matchId)).apply()
+    }
+
+    private fun draftKey(matchId: Long) = "substitution_round_$matchId"
 
     val teams = repository.teams.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
     val matches = repository.matches.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())

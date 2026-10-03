@@ -39,17 +39,23 @@ private data class SubstitutionDrag(val playerId: Long, val pointerInRoot: Offse
 internal fun SubstitutionModePanel(
     match: GameMatch,
     livePlacements: List<MatchLineupPlacement>,
+    /** A previously saved, unconfirmed round to continue; null starts from the live lineup. */
+    restoredPlan: List<MatchLineupPlacement>?,
     playersById: Map<Long, Player>,
     eligibleBenchIds: Set<Long>,
     minutesLabel: (Long) -> String,
     onMessage: (String) -> Unit,
+    /** Called with the current plan, or null when it no longer differs from the live lineup. */
+    onDraftChanged: (List<MatchLineupPlacement>?) -> Unit,
     onCancel: () -> Unit,
     onConfirm: (List<MatchLineupPlacement>) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val original = remember(match.id) { livePlacements }
     val originalById = remember(original) { original.associateBy { it.playerId } }
-    var plan by remember(match.id) { mutableStateOf(SubstitutionPlanRules.planOf(original)) }
+    var plan by remember(match.id) {
+        mutableStateOf(SubstitutionPlanRules.planOf(restoredPlan ?: original))
+    }
     var drag by remember { mutableStateOf<SubstitutionDrag?>(null) }
     var selectedId by remember { mutableStateOf<Long?>(null) }
     var pitchBounds by remember { mutableStateOf<Rect?>(null) }
@@ -67,6 +73,10 @@ internal fun SubstitutionModePanel(
         .mapNotNull { playersById[it.playerId] }
         .sortedWith(compareBy<Player>({ it.shirtNumber <= 0 }, { it.shirtNumber }, { it.name }))
     val changes = SubstitutionPlanRules.changes(original, plan)
+    val currentOnDraftChanged by rememberUpdatedState(onDraftChanged)
+    LaunchedEffect(plan) {
+        currentOnDraftChanged(if (changes.isEmpty) null else plan.values.toList())
+    }
 
     fun canMove(playerId: Long): Boolean =
         playerId in eligibleBenchIds || originalById[playerId]?.onPitch == true

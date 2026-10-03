@@ -16,6 +16,7 @@ import be.matchreview.app.data.Team
 import be.matchreview.app.domain.GoalMouthGeometry
 import be.matchreview.app.domain.TimelineGrouping
 import be.matchreview.app.domain.TimelineItem
+import be.matchreview.app.domain.VideoEventRules
 import java.io.OutputStream
 import java.util.Locale
 import kotlin.math.max
@@ -83,11 +84,14 @@ object MatchPdfExporter {
             )
             if (match.teamRating > 0) writer.labelValue("Team rating", "${match.teamRating}/10")
 
+            val (videoTags, matchEvents) = events
+                .sortedWith(compareBy<MatchEvent> { it.timestampMs }.thenBy { it.id })
+                .partition(VideoEventRules::isImportedVideoTag)
             writer.section("Timeline")
-            if (events.isEmpty()) {
+            if (matchEvents.isEmpty()) {
                 writer.text("No events recorded.")
             } else {
-                events.sortedWith(compareBy<MatchEvent> { it.timestampMs }.thenBy { it.id })
+                matchEvents
                     .forEach { event ->
                         val people = listOfNotNull(
                             event.playerId?.let { names[it] },
@@ -106,8 +110,24 @@ object MatchPdfExporter {
                     }
             }
 
+            if (videoTags.isNotEmpty()) {
+                writer.section("Imported video tags")
+                writer.text("Times are positions in the imported video, not match time.", small = true)
+                videoTags.forEach { tag ->
+                    writer.bullet(
+                        listOf(
+                            formatTime(tag.timestampMs),
+                            tag.type,
+                            tag.playerId?.let { names[it] }.orEmpty(),
+                            tag.sentiment,
+                            tag.note
+                        ).filter { it.isNotBlank() }.joinToString(" - ")
+                    )
+                }
+            }
+
             val lineupChanges = TimelineGrouping
-                .group(events.sortedWith(compareBy<MatchEvent> { it.timestampMs }.thenBy { it.id }))
+                .group(matchEvents)
                 .filterIsInstance<TimelineItem.LineupChange>()
             if (lineupChanges.isNotEmpty()) {
                 writer.section("Lineup changes")
