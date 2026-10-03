@@ -12,6 +12,8 @@ import be.matchreview.app.domain.FormationSlot
 import be.matchreview.app.domain.MatchSetupRules
 import be.matchreview.app.domain.LiveCommandGate
 import be.matchreview.app.domain.SubstitutionDraftCodec
+import be.matchreview.app.domain.MatchFormat
+import be.matchreview.app.domain.MatchFormatMemory
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -57,6 +59,37 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun draftKey(matchId: Long) = "substitution_round_$matchId"
+
+    private val formatPreferences =
+        application.getSharedPreferences("matchreview_match_format", 0)
+
+    /** The format of the last match the coach created, or null before the first one. */
+    fun lastMatchFormat(): MatchFormat? {
+        if (!formatPreferences.contains("playersOnPitch")) return null
+        return MatchFormatMemory.sanitize(
+            MatchFormat(
+                playersOnPitch = formatPreferences.getInt("playersOnPitch", 11),
+                formation = formatPreferences.getString("formation", "").orEmpty(),
+                periodCount = formatPreferences.getInt("periodCount", 2),
+                periodDurationMinutes = formatPreferences.getInt("periodDurationMinutes", 45),
+                rollingSubstitutions = formatPreferences.getBoolean("rollingSubstitutions", true),
+                competition = formatPreferences.getString("competition", "").orEmpty(),
+                teamId = formatPreferences.getLong("teamId", 0L)
+            )
+        )
+    }
+
+    private fun rememberMatchFormat(format: MatchFormat) {
+        formatPreferences.edit()
+            .putInt("playersOnPitch", format.playersOnPitch)
+            .putString("formation", format.formation)
+            .putInt("periodCount", format.periodCount)
+            .putInt("periodDurationMinutes", format.periodDurationMinutes)
+            .putBoolean("rollingSubstitutions", format.rollingSubstitutions)
+            .putString("competition", format.competition)
+            .putLong("teamId", format.teamId)
+            .apply()
+    }
 
     val teams = repository.teams.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
     val matches = repository.matches.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
@@ -204,12 +237,22 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             !MatchSetupRules.isLegalFormation(playersOnPitch, formation)
         ) return
         viewModelScope.launch {
-            done(
-                repository.addMatch(
-                    teamId, opponent, date, venue, competition, home, formation,
-                    periodCount, periodDurationMinutes, playersOnPitch, rollingSubstitutions
+            val matchId = repository.addMatch(
+                teamId, opponent, date, venue, competition, home, formation,
+                periodCount, periodDurationMinutes, playersOnPitch, rollingSubstitutions
+            )
+            rememberMatchFormat(
+                MatchFormat(
+                    playersOnPitch = playersOnPitch,
+                    formation = formation,
+                    periodCount = periodCount,
+                    periodDurationMinutes = periodDurationMinutes,
+                    rollingSubstitutions = rollingSubstitutions,
+                    competition = competition.trim(),
+                    teamId = teamId
                 )
             )
+            done(matchId)
         }
     }
 

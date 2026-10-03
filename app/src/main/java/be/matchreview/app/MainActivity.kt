@@ -47,6 +47,7 @@ import be.matchreview.app.domain.MediaIntegrityRules
 import be.matchreview.app.domain.MatchIntegrityRules
 import be.matchreview.app.domain.SeasonSummaryRules
 import be.matchreview.app.domain.PracticeMatchRules
+import be.matchreview.app.domain.MatchFormatMemory
 import be.matchreview.app.domain.BackupEstimate
 import be.matchreview.app.domain.MatchSetupRules
 import be.matchreview.app.domain.VideoEventRules
@@ -713,21 +714,24 @@ private fun TeamScreen(teamId: Long, vm: MainViewModel, nav: NavHostController) 
     val cameraState by CameraRecordingController.state.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
     var logoMessage by remember { mutableStateOf<String?>(null) }
-    val logoPicker = rememberLauncherForActivityResult(
-        ActivityResultContracts.PickVisualMedia()
-    ) { uri ->
-        if (uri != null) {
-            scope.launch {
-                val encoded = withContext(Dispatchers.IO) { TeamLogoCodec.encodeFromUri(context, uri) }
-                if (encoded == null) {
-                    logoMessage = "That image could not be read. Try a PNG or JPEG file."
-                } else {
-                    vm.setTeamLogo(teamId, encoded)
-                    logoMessage = null
-                }
+    var logoSourceMenu by remember { mutableStateOf(false) }
+    fun importLogo(uri: Uri?) {
+        if (uri == null) return
+        scope.launch {
+            val encoded = withContext(Dispatchers.IO) { TeamLogoCodec.encodeFromUri(context, uri) }
+            if (encoded == null) {
+                logoMessage = "That file could not be read as an image. Try a PNG or JPEG file."
+            } else {
+                vm.setTeamLogo(teamId, encoded)
+                logoMessage = null
             }
         }
     }
+    val logoFilePicker = rememberLauncherForActivityResult(OpenImageInDownloads(), ::importLogo)
+    val logoPhotoPicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.PickVisualMedia(),
+        ::importLogo
+    )
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -761,14 +765,33 @@ private fun TeamScreen(teamId: Long, vm: MainViewModel, nav: NavHostController) 
                             style = MaterialTheme.typography.bodySmall
                         )
                         Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                            TextButton(
-                                onClick = {
-                                    logoPicker.launch(
-                                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                            Box {
+                                TextButton(
+                                    onClick = { logoSourceMenu = true },
+                                    enabled = team != null
+                                ) { Text(if (team?.logoPng != null) "Change" else "Upload logo") }
+                                DropdownMenu(
+                                    expanded = logoSourceMenu,
+                                    onDismissRequest = { logoSourceMenu = false }
+                                ) {
+                                    DropdownMenuItem(
+                                        text = { Text("Downloads & files") },
+                                        onClick = {
+                                            logoSourceMenu = false
+                                            logoFilePicker.launch(arrayOf("image/*"))
+                                        }
                                     )
-                                },
-                                enabled = team != null
-                            ) { Text(if (team?.logoPng != null) "Change" else "Upload logo") }
+                                    DropdownMenuItem(
+                                        text = { Text("Photos") },
+                                        onClick = {
+                                            logoSourceMenu = false
+                                            logoPhotoPicker.launch(
+                                                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                                            )
+                                        }
+                                    )
+                                }
+                            }
                             if (team?.logoPng != null) {
                                 TextButton(onClick = { vm.setTeamLogo(teamId, null) }) { Text("Remove") }
                             }
@@ -1145,28 +1168,31 @@ private fun NewMatchScreen(vm: MainViewModel, nav: NavHostController) {
     var showDatePicker by remember { mutableStateOf(false) }
     var previousSettingsApplied by remember { mutableStateOf(false) }
 
-    LaunchedEffect(teams) {
-        if (teamId == 0L && teams.size == 1) teamId = teams.single().id
+    // The format (size, formation, periods, minutes, rolling subs, competition) and team of
+    // the last created match are reused. Opponent, date, venue and home/away stay fresh.
+    var rememberedTeamId by remember { mutableLongStateOf(0L) }
+    LaunchedEffect(matches, teams) {
+        if (previousSettingsApplied) return@LaunchedEffect
+        val practiceTeamIds = teams.filter(PracticeMatchRules::isPracticeTeam).mapTo(mutableSetOf()) { it.id }
+        val format = vm.lastMatchFormat()
+            ?: MatchFormatMemory.fromLatestMatch(matches, practiceTeamIds)
+            ?: return@LaunchedEffect
+        competition = format.competition
+        playersOnPitch = format.playersOnPitch.toString()
+        formation = format.formation
+        periodCount = format.periodCount.toString()
+        periodDuration = format.periodDurationMinutes.toString()
+        rollingSubstitutions = format.rollingSubstitutions
+        rememberedTeamId = format.teamId
+        previousSettingsApplied = true
     }
 
-    // Match settings are copied once from the most recently created match. Opponent, date,
-    // venue and home/away intentionally remain fresh for every new match.
-    LaunchedEffect(matches) {
-        if (!previousSettingsApplied) {
-            matches.maxByOrNull { it.id }?.let { previous ->
-                competition = previous.competition
-                val rememberedSize = previous.playersOnPitch
-                    .takeIf { it in MatchSetupRules.supportedMatchSizes }
-                    ?: 11
-                playersOnPitch = rememberedSize.toString()
-                formation = MatchSetupRules.legalFormationOrDefault(
-                    rememberedSize,
-                    previous.formation
-                )
-                periodCount = previous.periodCount.toString()
-                periodDuration = previous.periodDurationMinutes.toString()
-                previousSettingsApplied = true
-            }
+    LaunchedEffect(teams, rememberedTeamId) {
+        if (teamId != 0L) return@LaunchedEffect
+        teamId = when {
+            teams.size == 1 -> teams.single().id
+            teams.any { it.id == rememberedTeamId } -> rememberedTeamId
+            else -> 0L
         }
     }
 
@@ -1382,6 +1408,9 @@ private fun ReviewScreen(matchId: Long, vm: MainViewModel, nav: NavHostControlle
             }.getOrElse { "Export failed: ${it.message ?: "unknown error"}" }
         }
     }
+    fun writeSummaryPdf(output: java.io.OutputStream) = MatchPdfExporter.write(
+        output, current, team, teamPlayers, events, participations, recordings
+    )
     val pdfExportLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("application/pdf")
     ) { uri ->
@@ -1389,18 +1418,10 @@ private fun ReviewScreen(matchId: Long, vm: MainViewModel, nav: NavHostControlle
             exportMessage = "PDF download cancelled"
         } else {
             exportMessage = runCatching {
-                context.contentResolver.openOutputStream(uri, "w")!!.use { output ->
-                    MatchPdfExporter.write(
-                        output,
-                        current,
-                        team,
-                        teamPlayers,
-                        events,
-                        participations,
-                        recordings
-                    )
-                }
-                "PDF summary saved"
+                context.contentResolver.openOutputStream(uri, "w")!!.use(::writeSummaryPdf)
+                // Open the saved summary straight away so it can be checked and shared.
+                if (ExternalApps.open(context, uri, "application/pdf")) "PDF summary saved"
+                else "PDF summary saved. Install a PDF viewer to open it."
             }.getOrElse { "PDF export failed: ${it.message ?: "unknown error"}" }
         }
     }
@@ -1670,10 +1691,27 @@ private fun ReviewScreen(matchId: Long, vm: MainViewModel, nav: NavHostControlle
             }
             GoalMap(events, current.opponent, Modifier.fillMaxWidth())
             ReviewEditor(current, vm)
-            FilledTonalButton(
-                onClick = { pdfExportLauncher.launch(MatchPdfExporter.fileName(current)) },
-                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
-            ) { Text("Download match summary (PDF)") }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FilledTonalButton(
+                    onClick = { pdfExportLauncher.launch(MatchPdfExporter.fileName(current)) },
+                    modifier = Modifier.weight(1f).heightIn(min = 48.dp)
+                ) { Text("Download PDF summary") }
+                OutlinedButton(
+                    onClick = {
+                        exportMessage = runCatching {
+                            ExternalApps.shareNewFile(
+                                context,
+                                MatchPdfExporter.fileName(current),
+                                "application/pdf",
+                                "Match summary vs ${current.opponent}",
+                                ::writeSummaryPdf
+                            )
+                            null
+                        }.getOrElse { "PDF sharing failed: ${it.message ?: "unknown error"}" }
+                    },
+                    modifier = Modifier.heightIn(min = 48.dp)
+                ) { Text("Share") }
+            }
             exportMessage?.takeIf { it.startsWith("PDF") }?.let {
                 Text(it, style = MaterialTheme.typography.bodySmall)
             }

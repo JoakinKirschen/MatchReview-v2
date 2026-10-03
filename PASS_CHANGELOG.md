@@ -1,7 +1,7 @@
 # MatchReview Pass Changelog
 
 This is the **single source of truth** for implementation-pass notes and change tracking.
-It consolidates implementation notes for Passes 1–53.
+It consolidates implementation notes for Passes 1–54.
 
 ## How to maintain this file
 
@@ -37,7 +37,7 @@ For every future development pass:
 
 | Pass | Status | Planned change | Version impact |
 |---:|---|---|---|
-| 54 | Not scheduled | Add the next approved recommendation here | To be determined |
+| 55 | Not scheduled | Add the next approved recommendation here | To be determined |
 
 ## Documentation changes
 
@@ -121,6 +121,7 @@ For every future development pass:
 | 51 | [Editable match details and review fixes](#pass-51-editable-match-details-and-review-fixes) |
 | 52 | [Review follow-ups](#pass-52-review-follow-ups) |
 | 53 | [Full-screen substitution mode](#pass-53-full-screen-substitution-mode) |
+| 54 | [Lineup fixes, remembered format, logo files, PDF sharing](#pass-54-lineup-fixes-remembered-format-logo-files-pdf-sharing) |
 
 ---
 
@@ -1289,3 +1290,20 @@ begin.
 
 ### Tests and verification
 - Added drop-resolution and slot-occupancy tests to `SubstitutionPlanRulesTest`.
+
+## Pass 54 — Lineup fixes, remembered format, logo files, PDF sharing
+
+**Status:** Completed  
+**Completed:** 2026-10-03  
+**Version impact:** App only
+
+### Added or changed
+- Fixed: after auto-place or moving a player to the bench, a bench player could not be dragged onto the pitch for a few seconds. The confirmation snackbar covered the bench and swallowed the long-press. The starting-lineup screen no longer shows snackbars for moves, auto-place or swaps.
+- The starting-lineup screen uses the same drop rules as substitution mode: dropping on a player swaps them, a full pitch swaps with the nearest player, and the swap target or snap slot is highlighted while dragging.
+- New matches reuse the last created match's size, formation, periods, minutes, rolling substitutions, competition and team. Practice matches never overwrite these defaults.
+- Team logos can be picked from "Downloads & files" (Android's file browser, opening in Download) or from Photos.
+- After downloading the PDF summary it opens in the PDF viewer. A Share button sends the summary straight to another app without saving it first (via a FileProvider).
+- Removed the "Unconfirmed substitutions restored" snackbar, which covered the bench in substitution mode.
+
+### Tests and verification
+- Added `LineupDragAndDropTest` cases for 8v8 at 6/8 after auto-place and for swapping onto a full pitch, plus `MatchFormatMemoryTest`.

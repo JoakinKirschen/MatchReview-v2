@@ -49,6 +49,8 @@ import be.matchreview.app.data.Player
 import be.matchreview.app.domain.FormationLayout
 import be.matchreview.app.domain.FormationSlot
 import be.matchreview.app.domain.LineupDragDropRules
+import be.matchreview.app.domain.SubstitutionDrop
+import be.matchreview.app.domain.SubstitutionPlanRules
 import kotlin.coroutines.cancellation.CancellationException
 import kotlin.math.roundToInt
 import kotlinx.coroutines.launch
@@ -112,84 +114,70 @@ fun LineupBuilderScreen(
         if (android.os.SystemClock.uptimeMillis() - lastDropAt > 400L) selectedPlayerId = playerId
     }
 
-    val snackbar = remember { SnackbarHostState() }
-    val scope = rememberCoroutineScope()
     val haptics = LocalHapticFeedback.current
+    val playerHitRadiusPx = with(LocalDensity.current) { 40.dp.toPx() }
 
-    fun finishDrag(playerId: Long, pointer: Offset) {
-        lastDropAt = android.os.SystemClock.uptimeMillis()
+    /**
+     * Where [playerId] lands if released at [pointer], using the same rules as substitution
+     * mode: on another player swaps them, a full pitch swaps with the nearest player, and
+     * otherwise the player snaps to a free slot nearby. Null when not over the pitch.
+     */
+    fun dropAt(playerId: Long, pointer: Offset): SubstitutionDrop? {
+        val pitch = pitchBounds ?: return null
+        if (!pitch.contains(pointer)) return null
+        val (x, y) = LineupDragDropRules.normalize(
+            pointer.x, pointer.y, pitch.left, pitch.top, pitch.width, pitch.height
+        )
         val existing = placementByPlayer[playerId]
             ?: MatchLineupPlacement(matchId = matchId, playerId = playerId)
-        val pitch = pitchBounds
+        return SubstitutionPlanRules.resolveDrop(
+            placementByPlayer + (playerId to existing), playerId, x, y, slots,
+            current.playersOnPitch, pitch.width, pitch.height, playerHitRadiusPx
+        )
+    }
+
+    // Moves are confirmed by the lineup itself and a haptic tick. No snackbars: they cover
+    // the bench and block the next long-press for several seconds.
+    fun finishDrag(playerId: Long, pointer: Offset) {
+        lastDropAt = android.os.SystemClock.uptimeMillis()
+        dragState = null
+        val existing = placementByPlayer[playerId]
+            ?: MatchLineupPlacement(matchId = matchId, playerId = playerId)
         val benchArea = benchBounds
-        when {
-            pitch != null && pitch.contains(pointer) -> {
-                if (!existing.onPitch && onPitch.size >= current.playersOnPitch) {
-                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                    scope.launch {
-                        snackbar.showSnackbar("The pitch is full. Move a player to the bench first.")
-                    }
-                } else {
-                    val (rawX, rawY) = LineupDragDropRules.normalize(
-                        pointer.x, pointer.y,
-                        pitch.left, pitch.top, pitch.width, pitch.height
-                    )
-                    val occupied = LineupDragDropRules.occupiedSlotIds(
-                        slots, onPitch.filterNot { it.playerId == playerId }
-                    )
-                    val drop = LineupDragDropRules.resolvePitchDrop(
-                        rawX, rawY, slots, occupied
-                    )
-                    vm.setLineupPlacement(
-                        existing.copy(
-                            normalizedX = drop.normalizedX,
-                            normalizedY = drop.normalizedY,
-                            formationSlot = drop.formationSlot,
-                            role = drop.role.ifBlank { existing.role },
-                            onPitch = true
-                        )
-                    )
-                    haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                }
+        when (val drop = dropAt(playerId, pointer)) {
+            is SubstitutionDrop.Swap -> placementByPlayer[drop.targetPlayerId]?.let { target ->
+                vm.swapLineupPlacements(existing, target)
+                haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
             }
-            benchArea != null && benchArea.contains(pointer) -> {
-                if (existing.onPitch) {
-                    vm.setLineupPlacement(
-                        existing.copy(onPitch = false, formationSlot = "", role = "")
+            is SubstitutionDrop.Place -> {
+                vm.setLineupPlacement(
+                    existing.copy(
+                        normalizedX = drop.drop.normalizedX,
+                        normalizedY = drop.drop.normalizedY,
+                        formationSlot = drop.drop.formationSlot,
+                        role = drop.drop.role.ifBlank { existing.role },
+                        onPitch = true
                     )
-                    haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                    scope.launch { snackbar.showSnackbar("Player moved to the bench") }
-                }
+                )
+                haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
             }
-            else -> {
+            null -> if (benchArea != null && benchArea.contains(pointer) && existing.onPitch) {
+                vm.setLineupPlacement(existing.copy(onPitch = false, formationSlot = "", role = ""))
+                haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+            } else {
                 haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                scope.launch { snackbar.showSnackbar("Drop cancelled") }
             }
         }
-        dragState = null
     }
 
     val dragPointer = dragState?.pointerInRoot
     val pitchIsDropTarget = dragPointer?.let { pitchBounds?.contains(it) } == true
     val benchIsDropTarget = dragPointer?.let { benchBounds?.contains(it) } == true
+    val dropPreview = dragState?.let { dropAt(it.playerId, it.pointerInRoot) }
+    val hoveredSlotId = (dropPreview as? SubstitutionDrop.Place)?.drop?.takeIf { it.snapped }?.formationSlot
+    val swapTargetId = (dropPreview as? SubstitutionDrop.Swap)?.targetPlayerId
 
-    val hoveredSlotId = remember(dragState, pitchBounds, onPitch, slots) {
-        val drag = dragState ?: return@remember null
-        val pitch = pitchBounds ?: return@remember null
-        if (!pitch.contains(drag.pointerInRoot)) return@remember null
-        val (x, y) = LineupDragDropRules.normalize(
-            drag.pointerInRoot.x, drag.pointerInRoot.y,
-            pitch.left, pitch.top, pitch.width, pitch.height
-        )
-        val occupied = LineupDragDropRules.occupiedSlotIds(
-            slots, onPitch.filterNot { it.playerId == drag.playerId }
-        )
-        LineupDragDropRules.resolvePitchDrop(x, y, slots, occupied)
-            .takeIf { it.snapped }
-            ?.formationSlot
-    }
-
-    Scaffold(snackbarHost = { SnackbarHost(snackbar) }) { innerPadding ->
+    Scaffold { innerPadding ->
         Column(
             Modifier
                 .fillMaxSize()
@@ -233,6 +221,8 @@ fun LineupBuilderScreen(
                         },
                         onDragEnd = ::finishDrag,
                         onDragCancel = { dragState = null },
+                        highlightedPlayerId = swapTargetId,
+                        dropHint = swapTargetId?.let { "Swap with ${playersById[it]?.name ?: "player"}" },
                         modifier = Modifier
                             .weight(1f)
                             .fillMaxWidth()
@@ -346,9 +336,7 @@ fun LineupBuilderScreen(
             playersById = playersById,
             onDismiss = { selectedPlayerId = null },
             onMoveToPitch = { slot ->
-                if (onPitch.size >= current.playersOnPitch && !existing.onPitch) {
-                    scope.launch { snackbar.showSnackbar("The pitch is full. Move a player to the bench first.") }
-                } else {
+                if (onPitch.size < current.playersOnPitch || existing.onPitch) {
                     vm.setLineupPlacement(
                         existing.copy(
                             normalizedX = slot.normalizedX,
@@ -368,7 +356,6 @@ fun LineupBuilderScreen(
             onSwapWith = { occupied ->
                 vm.swapLineupPlacements(existing, occupied)
                 selectedPlayerId = null
-                scope.launch { snackbar.showSnackbar("Players swapped") }
             },
             onNudge = { dx, dy ->
                 vm.setLineupPlacement(
@@ -401,7 +388,6 @@ fun LineupBuilderScreen(
                     onClick = {
                         showAutoPlaceConfirmation = false
                         vm.autoPlaceLineup(matchId, selectedPlayers, slots)
-                        scope.launch { snackbar.showSnackbar("Lineup auto-placed") }
                     }
                 ) { Text("Auto-place") }
             },

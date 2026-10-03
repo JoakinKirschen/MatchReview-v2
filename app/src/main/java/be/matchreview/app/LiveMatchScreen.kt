@@ -266,7 +266,6 @@ fun LiveMatchScreen(
             restoredSubstitutionPlan = draft
             tab = LiveTab.MATCH
             substitutionMode = true
-            snackbarHostState.showSnackbar("Unconfirmed substitutions restored")
         } else {
             vm.clearSubstitutionDraft(matchId)
         }

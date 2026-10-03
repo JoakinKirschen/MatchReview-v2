@@ -12,6 +12,7 @@ import androidx.navigation.compose.rememberNavController
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import be.matchreview.app.data.MatchLineupPlacement
+import be.matchreview.app.domain.FormationLayout
 import be.matchreview.app.ui.MatchReviewTheme
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
@@ -58,6 +59,74 @@ class LineupDragAndDropTest {
         }
         waitForTag(LineupTestTags.benchPlayer(fixture.playerIds.first()))
         return fixture
+    }
+
+    /**
+     * An 8v8 match (2-4-1) with ten selected players that was auto-placed: players 1-8
+     * fill GK, DEF-1, DEF-2, MID-1..4 and FWD-1; players 9 and 10 are on the bench.
+     */
+    private fun showAutoPlaced8v8(): Fixture {
+        val fixture = runBlocking {
+            val repository = app.repository
+            val teamId = repository.addTeam("U11", "", "", "")
+            val playerIds = (1..10).map { repository.addPlayer(teamId, "Player$it", it, "") }
+            val matchId = repository.addMatch(
+                teamId, "Rivals", "2026-10-03", "", "", true, "2-4-1",
+                periodCount = 4, periodDurationMinutes = 15, playersOnPitch = 8, rollingSubstitutions = true
+            )
+            repository.ensureMatchSquad(matchId, teamId)
+            playerIds.forEach { repository.setSquadSelected(matchId, it, true) }
+            repository.ensureLineup(matchId)
+            val players = app.database.matchDao().getPlayersForTeam(teamId)
+            repository.autoPlaceLineup(matchId, players, FormationLayout.slots("2-4-1", 8))
+            Fixture(matchId, playerIds)
+        }
+        compose.setContent {
+            val vm = remember { MainViewModel(app) }
+            MatchReviewTheme {
+                LineupBuilderScreen(fixture.matchId, vm, rememberNavController())
+            }
+        }
+        waitForTag(LineupTestTags.benchPlayer(fixture.playerIds[8]))
+        waitForTag(LineupTestTags.pitchPlayer(fixture.playerIds[0]))
+        return fixture
+    }
+
+    private fun benchCenter(): Offset =
+        compose.onNodeWithTag(LineupTestTags.BENCH).fetchSemanticsNode().boundsInRoot.center
+
+    @Test
+    fun benchPlayerCanFillAFreedSlotRightAfterOthersWentToTheBench() {
+        val fixture = showAutoPlaced8v8()
+        val (def1, def2) = fixture.playerIds.subList(1, 3)
+
+        longPressDrag(LineupTestTags.pitchPlayer(def1), benchCenter())
+        waitForPlacement(fixture, def1) { !it.onPitch }
+        longPressDrag(LineupTestTags.pitchPlayer(def2), benchCenter())
+        waitForPlacement(fixture, def2) { !it.onPitch }
+        waitForTag(LineupTestTags.benchPlayer(def2))
+
+        // 6/8 on the pitch: a bench player dropped on the free DEF-1 spot takes it at once.
+        val substitute = fixture.playerIds[8]
+        longPressDrag(LineupTestTags.benchPlayer(substitute), pitchPoint(1f / 3f, 0.72f))
+
+        waitForPlacement(fixture, substitute) { it.onPitch }
+        assertEquals("DEF-1", placement(fixture, substitute)!!.formationSlot)
+    }
+
+    @Test
+    fun benchPlayerDroppedOnPitchPlayerOfFullPitchSwapsWithThem() {
+        val fixture = showAutoPlaced8v8()
+        val midfielder = fixture.playerIds[4] // MID-2
+        val substitute = fixture.playerIds[9]
+        val target = compose.onNodeWithTag(LineupTestTags.pitchPlayer(midfielder))
+            .fetchSemanticsNode().boundsInRoot.center
+
+        longPressDrag(LineupTestTags.benchPlayer(substitute), target)
+
+        waitForPlacement(fixture, substitute) { it.onPitch }
+        waitForPlacement(fixture, midfielder) { !it.onPitch }
+        assertEquals("MID-2", placement(fixture, substitute)!!.formationSlot)
     }
 
     private fun waitForTag(tag: String) {
