@@ -29,6 +29,10 @@ video playback, event tagging, and match notes.
 5. Open **Actions → Build Android APK → Run workflow**.
 6. When the build finishes, download the `matchreview-debug-apk` artifact.
 
+Debug APKs are signed with the fixed key in `app/debug.keystore`, so a newer APK installs
+over the previous one and keeps your data. APKs built before this change used a random
+key; uninstall that version once (create a backup first), then updates install normally.
+
 The workflow installs Java 17 and Android API 35/build-tools 35.0.0, and builds with the
 Gradle wrapper (Gradle 8.9). It runs the unit tests and fails if any test fails. It always
 uploads the `gradle-logs` and `android-test-reports` artifacts, even if compilation fails.

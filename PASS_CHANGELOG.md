@@ -41,6 +41,13 @@ For every future development pass:
 
 ## Documentation changes
 
+### 2026-10-03 — Consistent debug signing
+
+- CI builds were signed with a new random debug key on every run, so Android refused to
+  install a new APK over the previous one. Debug builds now use the committed
+  `app/debug.keystore`, and CI prints the signing certificate of each APK.
+- One last uninstall is needed when moving from an APK built before this change.
+
 ### 2026-09-27 — Consolidated pass tracking
 
 - Merged all 35 standalone pass-note files into this changelog.

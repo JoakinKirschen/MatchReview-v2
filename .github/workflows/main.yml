@@ -261,6 +261,15 @@ jobs:
 
           echo "::warning::Android unit tests failed. See the job summary for the failing tests."
 
+      # Every build must carry the same certificate, or Android refuses to update the app.
+      - name: Show APK signing certificate
+        if: always() && steps.build.outcome == 'success'
+        shell: bash
+        run: |
+          apk="$(find app/build/outputs/apk/debug -name '*.apk' | head -n 1)"
+          "$ANDROID_HOME/build-tools/${ANDROID_BUILD_TOOLS}/apksigner" verify --print-certs "$apk" \
+            | grep -E 'Signer #1 certificate (DN|SHA-256)'
+
       - name: Upload debug APK
         if: always() && steps.build.outcome == 'success'
         uses: actions/upload-artifact@v6
