@@ -69,32 +69,15 @@ fun SquadSelectionScreen(
     }
 
     Column(Modifier.fillMaxSize()) {
-        Surface(color = MaterialTheme.colorScheme.primaryContainer) {
-            Column(
-                Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                Text(
-                    "Select players",
-                    style = MaterialTheme.typography.headlineSmall,
-                    fontWeight = FontWeight.Bold
-                )
-                Text(
-                    "vs ${current.opponent} • ${current.matchDate}",
-                    style = MaterialTheme.typography.bodyMedium
-                )
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    SummaryPill("${summary.selectedCount}", "selected", Modifier.weight(1f))
-                    SummaryPill("${roster.size}", "in team", Modifier.weight(1f))
-                    SummaryPill("${current.playersOnPitch}", "on pitch", Modifier.weight(1f))
-                }
-            }
-        }
-
         Column(
-            Modifier.fillMaxWidth().padding(12.dp),
+            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                SummaryPill("${summary.selectedCount}", "selected", Modifier.weight(1f))
+                SummaryPill("${roster.size}", "in team", Modifier.weight(1f))
+                SummaryPill("${current.playersOnPitch}", "on pitch", Modifier.weight(1f))
+            }
             OutlinedTextField(
                 value = search,
                 onValueChange = { search = it },
@@ -128,10 +111,6 @@ fun SquadSelectionScreen(
                     modifier = Modifier.weight(1f)
                 ) { Text("Clear selection") }
             }
-            Text(
-                "Tap players to include or exclude them from this match.",
-                style = MaterialTheme.typography.bodySmall
-            )
         }
 
         HorizontalDivider()
@@ -207,7 +186,7 @@ private fun SummaryPill(value: String, label: String, modifier: Modifier = Modif
     Surface(
         modifier = modifier,
         shape = MaterialTheme.shapes.medium,
-        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.72f)
+        color = MaterialTheme.colorScheme.surfaceContainerHighest
     ) {
         Column(
             Modifier.padding(vertical = 8.dp),

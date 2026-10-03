@@ -811,9 +811,9 @@ private fun BackupRestoreScreen(vm: MainViewModel) {
 @Composable
 private fun StatCard(label: String, value: String, modifier: Modifier = Modifier) {
     Card(modifier) {
-        Column(Modifier.padding(18.dp)) {
-            Text(value, style = MaterialTheme.typography.headlineLarge)
-            Text(label)
+        Column(Modifier.padding(16.dp)) {
+            Text(value, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+            Text(label, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }
@@ -958,17 +958,19 @@ private fun TeamScreen(teamId: Long, vm: MainViewModel, nav: NavHostController) 
                         }
                     }
                     Column(Modifier.weight(1f)) {
-                        Text("Team logo", style = MaterialTheme.typography.titleMedium)
                         Text(
-                            "Shown in the team list and on PDF match summaries.",
-                            style = MaterialTheme.typography.bodySmall
+                            team?.name ?: "Team",
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
                         Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                             Box {
                                 TextButton(
                                     onClick = { logoSourceMenu = true },
                                     enabled = team != null
-                                ) { Text(if (team?.logoPng != null) "Change" else "Upload logo") }
+                                ) { Text(if (team?.logoPng != null) "Change logo" else "Add logo") }
                                 DropdownMenu(
                                     expanded = logoSourceMenu,
                                     onDismissRequest = { logoSourceMenu = false }
@@ -1003,8 +1005,6 @@ private fun TeamScreen(teamId: Long, vm: MainViewModel, nav: NavHostController) 
             }
         }
         item {
-            Text(team?.name ?: "Team", style = MaterialTheme.typography.headlineMedium)
-            Text("Tap a player to edit their details.", style = MaterialTheme.typography.bodySmall)
             Row(
                 Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -1906,21 +1906,21 @@ private fun ReviewScreen(matchId: Long, vm: MainViewModel, nav: NavHostControlle
                 Text(if (current.status == MatchStatus.LINEUP_READY) "Check match readiness" else "Resume live match")
             }
         }
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            val setupEditable = current.status in setOf(MatchStatus.DRAFT, MatchStatus.LINEUP_READY)
-            AppTonalButton(
-                onClick = { nav.navigate("squad/$matchId") },
-                enabled = setupEditable,
-                modifier = Modifier.weight(1f)
-            ) {
-                Text("Edit squad")
-            }
-            AppTonalButton(
-                onClick = { nav.navigate("lineup/$matchId") },
-                enabled = setupEditable,
-                modifier = Modifier.weight(1f)
-            ) {
-                Text("Starting lineup")
+        // Squad and lineup can only change before kick-off; afterwards the buttons are hidden.
+        if (current.status in setOf(MatchStatus.DRAFT, MatchStatus.LINEUP_READY)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                AppTonalButton(
+                    onClick = { nav.navigate("squad/$matchId") },
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Text("Edit squad")
+                }
+                AppTonalButton(
+                    onClick = { nav.navigate("lineup/$matchId") },
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Text("Starting lineup")
+                }
             }
         }
 

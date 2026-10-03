@@ -2,6 +2,7 @@
 
 package be.matchreview.app
 
+import be.matchreview.app.ui.AppButtons
 import be.matchreview.app.ui.AppButton
 import be.matchreview.app.ui.AppOutlinedButton
 import be.matchreview.app.ui.AppTonalButton
@@ -378,7 +379,7 @@ fun LiveMatchScreen(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             // Substitution mode gives the whole screen to the pitch and bench.
-            if (!substitutionMode) Surface(shadowElevation = 3.dp, color = MaterialTheme.colorScheme.surface) {
+            if (!substitutionMode) Surface(shadowElevation = 3.dp, color = MaterialTheme.colorScheme.surfaceContainerLowest) {
                 Row(
                     Modifier.fillMaxWidth().height(50.dp).padding(horizontal = 4.dp),
                     verticalAlignment = Alignment.CenterVertically
@@ -423,7 +424,7 @@ fun LiveMatchScreen(
             }
         },
         bottomBar = {
-            if (!substitutionMode) Surface(shadowElevation = 10.dp, color = MaterialTheme.colorScheme.surface) {
+            if (!substitutionMode) Surface(shadowElevation = 10.dp, color = MaterialTheme.colorScheme.surfaceContainerLowest) {
                 Column(Modifier.navigationBarsPadding()) {
                     CompactLiveTabs(
                         selected = tab,
@@ -559,19 +560,19 @@ fun LiveMatchScreen(
                         onClick = ::recordQuickGoal,
                         enabled = !liveActionLocked,
                         contentPadding = PaddingValues(horizontal = 6.dp),
-                        modifier = Modifier.weight(1f).heightIn(min = 52.dp)
+                        modifier = Modifier.weight(1f).heightIn(min = AppButtons.LargeHeight)
                     ) { Text(stringResource(R.string.our_goal), maxLines = 1, overflow = TextOverflow.Ellipsis) }
                     AppOutlinedButton(
                         onClick = { showOpponentGoalConfirmation = true },
                         enabled = !liveActionLocked,
                         contentPadding = PaddingValues(horizontal = 6.dp),
-                        modifier = Modifier.weight(1f).heightIn(min = 52.dp)
+                        modifier = Modifier.weight(1f).heightIn(min = AppButtons.LargeHeight)
                     ) { Text(stringResource(R.string.their_goal), maxLines = 1, overflow = TextOverflow.Ellipsis) }
                     AppTonalButton(
                         onClick = ::startSave,
                         enabled = !liveActionLocked,
                         contentPadding = PaddingValues(horizontal = 6.dp),
-                        modifier = Modifier.weight(0.75f).heightIn(min = 52.dp)
+                        modifier = Modifier.weight(0.75f).heightIn(min = AppButtons.LargeHeight)
                     ) {
                         val saves = events.count { it.type == "KEEPER_SAVE" }
                         Text(
@@ -588,13 +589,13 @@ fun LiveMatchScreen(
                         enabled = !liveActionLocked &&
                             events.any { it.type == "OUR_GOAL" || it.type == "OPPONENT_GOAL" },
                         contentPadding = PaddingValues(horizontal = 6.dp),
-                        modifier = Modifier.heightIn(min = 52.dp)
+                        modifier = Modifier.heightIn(min = AppButtons.LargeHeight)
                     ) { Text(stringResource(R.string.undo)) }
                     AppOutlinedButton(
                         onClick = { actionsSheetOpen = true },
                         enabled = !liveActionLocked,
                         contentPadding = PaddingValues(horizontal = 4.dp),
-                        modifier = Modifier.widthIn(min = 48.dp).heightIn(min = 52.dp)
+                        modifier = Modifier.widthIn(min = 48.dp).heightIn(min = AppButtons.LargeHeight)
                             .semantics { contentDescription = "Shots, corners and cards" }
                     ) { Text("⋯", fontWeight = FontWeight.Black) }
                 }
@@ -1631,7 +1632,7 @@ private fun BenchMinuteCard(
     Surface(
         shape = MaterialTheme.shapes.small,
         tonalElevation = 2.dp,
-        color = if (enabled) MaterialTheme.colorScheme.surface else MaterialTheme.colorScheme.surfaceVariant,
+        color = if (enabled) MaterialTheme.colorScheme.surfaceContainerHighest else MaterialTheme.colorScheme.surfaceVariant,
         modifier = Modifier.width(78.dp).fillMaxHeight().clickable(enabled = enabled, onClick = onClick)
     ) {
         Column(
@@ -1844,7 +1845,7 @@ private fun MatchActionsSheet(
                                 else -> ButtonDefaults.filledTonalButtonColors()
                             },
                             contentPadding = PaddingValues(horizontal = 8.dp),
-                            modifier = Modifier.weight(1f).heightIn(min = 52.dp)
+                            modifier = Modifier.weight(1f)
                         ) {
                             Text("$label ($total)", maxLines = 1, overflow = TextOverflow.Ellipsis)
                         }
