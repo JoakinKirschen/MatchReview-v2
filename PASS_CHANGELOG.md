@@ -1340,6 +1340,7 @@ begin.
 ### Added or changed
 - Season stats can be corrected: tap a player in the team's stats table to edit matches, minutes, goals, assists and saves. Corrections are stored separately from tracked data, so later tracked matches keep adding on top; corrected rows show ✎ and can be reset to the tracked numbers. The table is shown as soon as the team has players.
 - Dashboard: the System / Light / Dark / Outdoor buttons are at the top without a title or description; the "Coach dashboard" heading and subtitle are removed.
+- Fixed: a drag on the lineup pitch could be cancelled when the previous move was saved mid-drag. Pitch markers were placed by list position, so the shrinking list handed the dragged marker's gesture to another player. Markers are now keyed by player. Found through an intermittent `LineupDragAndDropTest` failure.
 
 ### Tests and verification
 - Added correction tests to `MatchInsightsRulesTest`; the database upgrade test covers migration 5 → 6.
