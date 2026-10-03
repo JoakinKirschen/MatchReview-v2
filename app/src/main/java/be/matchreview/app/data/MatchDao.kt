@@ -3,6 +3,7 @@ package be.matchreview.app.data
 import androidx.room.*
 import be.matchreview.app.domain.LineupSnapshot
 import be.matchreview.app.domain.MatchClockCalculator
+import be.matchreview.app.domain.PracticeMatchRules
 import be.matchreview.app.domain.SubstitutionPlanRules
 import be.matchreview.app.domain.VideoEventRules
 import kotlinx.coroutines.flow.Flow
@@ -1145,22 +1146,23 @@ interface MatchDao {
     }
 
 
-    @Query("SELECT * FROM teams ORDER BY id LIMIT 1")
-    suspend fun getFirstTeamOnce(): Team?
+    @Query("SELECT * FROM teams WHERE name = :name AND season = :season ORDER BY id LIMIT 1")
+    suspend fun findTeamOnce(name: String, season: String): Team?
 
     /**
      * Creates disposable practice data with no permissions or network requirement.
-     * Reuses the first team when available; otherwise creates a clearly labelled team.
+     * Always uses a dedicated, clearly labelled team so sample players are never added
+     * to a real squad.
      */
     @Transaction
     suspend fun createPracticeMatch(): Long {
-        val team = getFirstTeamOnce()
+        val team = findTeamOnce(PracticeMatchRules.TEAM_NAME, PracticeMatchRules.SEASON)
         val teamId = team?.id ?: insertTeam(
-            Team(name = "Practice team", club = "Local practice", ageGroup = "", season = "Practice")
+            Team(name = PracticeMatchRules.TEAM_NAME, club = "Local practice", ageGroup = "", season = PracticeMatchRules.SEASON)
         )
         var players = getPlayersForTeam(teamId)
         if (players.size < 8) {
-            val templates = be.matchreview.app.domain.PracticeMatchRules.players
+            val templates = PracticeMatchRules.players
             val missing = templates.drop(players.size)
             missing.forEach {
                 insertPlayer(Player(teamId = teamId, name = it.name, shirtNumber = it.shirtNumber, position = it.position))
@@ -1216,7 +1218,6 @@ interface MatchDao {
 
     @Query("SELECT COUNT(*) FROM recording_segments WHERE uri IS NOT NULL")
     fun observeRecordingCount(): Flow<Int>
-
 }
 
 private fun liveActionTime(

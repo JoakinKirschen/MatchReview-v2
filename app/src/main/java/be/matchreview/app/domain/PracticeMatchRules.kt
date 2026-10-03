@@ -3,6 +3,9 @@ package be.matchreview.app.domain
 data class PracticePlayerTemplate(val name: String, val shirtNumber: Int, val position: String)
 
 object PracticeMatchRules {
+    const val TEAM_NAME = "Practice team"
+    const val SEASON = "Practice"
+
     val players: List<PracticePlayerTemplate> = listOf(
         PracticePlayerTemplate("Practice goalkeeper", 1, "GK"),
         PracticePlayerTemplate("Practice defender 1", 2, "DF"),

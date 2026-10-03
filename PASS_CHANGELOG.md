@@ -1241,6 +1241,7 @@ begin.
 - Fixed: the match date picker could show the previous day in time zones east of UTC.
 - Fixed: the match-day check reported "No goalkeeper role detected" even with a player in the GK slot.
 - The Material 3 opt-in is now in `LiveMatchScreen.kt`; the CI step that patched the file was removed.
+- Fixed: "Start a practice match" added sample players to the user's first real team; it now always uses a dedicated "Practice team".
 - Fixed the two `LineupDragAndDropTest` cases that looked for an "Auto" button (now "Auto-place"); CI fails on test failures again.
 
 ### Tests and verification
