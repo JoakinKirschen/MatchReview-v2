@@ -1,5 +1,9 @@
 package be.matchreview.app
 
+import be.matchreview.app.ui.AppCard
+import be.matchreview.app.ui.AppButton
+import be.matchreview.app.ui.AppOutlinedButton
+import be.matchreview.app.ui.AppTonalButton
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -66,32 +70,15 @@ fun SquadSelectionScreen(
     }
 
     Column(Modifier.fillMaxSize()) {
-        Surface(color = MaterialTheme.colorScheme.primaryContainer) {
-            Column(
-                Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                Text(
-                    "Select players",
-                    style = MaterialTheme.typography.headlineSmall,
-                    fontWeight = FontWeight.Bold
-                )
-                Text(
-                    "vs ${current.opponent} • ${current.matchDate}",
-                    style = MaterialTheme.typography.bodyMedium
-                )
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    SummaryPill("${summary.selectedCount}", "selected", Modifier.weight(1f))
-                    SummaryPill("${roster.size}", "in team", Modifier.weight(1f))
-                    SummaryPill("${current.playersOnPitch}", "on pitch", Modifier.weight(1f))
-                }
-            }
-        }
-
         Column(
-            Modifier.fillMaxWidth().padding(12.dp),
+            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                SummaryPill("${summary.selectedCount}", "selected", Modifier.weight(1f))
+                SummaryPill("${roster.size}", "in team", Modifier.weight(1f))
+                SummaryPill("${current.playersOnPitch}", "on pitch", Modifier.weight(1f))
+            }
             OutlinedTextField(
                 value = search,
                 onValueChange = { search = it },
@@ -116,19 +103,15 @@ fun SquadSelectionScreen(
                 }
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                FilledTonalButton(
+                AppTonalButton(
                     onClick = { vm.markAndSelectAllAvailable(matchId) },
                     modifier = Modifier.weight(1f)
                 ) { Text("Select all") }
-                OutlinedButton(
+                AppOutlinedButton(
                     onClick = { vm.clearSquadSelection(matchId) },
                     modifier = Modifier.weight(1f)
                 ) { Text("Clear selection") }
             }
-            Text(
-                "Tap players to include or exclude them from this match.",
-                style = MaterialTheme.typography.bodySmall
-            )
         }
 
         HorizontalDivider()
@@ -176,18 +159,21 @@ fun SquadSelectionScreen(
                 Modifier.fillMaxWidth().padding(12.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Text(
-                    when {
-                        summary.selectedCount == 0 -> "Select at least one player."
-                        summary.selectedCount < current.playersOnPitch ->
-                            "Select ${current.playersOnPitch - summary.selectedCount} more for a full ${current.playersOnPitch}v${current.playersOnPitch} lineup, or continue with fewer."
-                        else -> "${summary.selectedCount} players selected."
-                    },
-                    color = if (summary.selectedCount == 0) MaterialTheme.colorScheme.error
-                    else MaterialTheme.colorScheme.primary,
-                    style = MaterialTheme.typography.bodySmall
-                )
-                Button(
+                // Only a warning; the count itself is in the summary at the top.
+                when {
+                    summary.selectedCount == 0 -> "Select at least one player."
+                    summary.selectedCount < current.playersOnPitch ->
+                        "Select ${current.playersOnPitch - summary.selectedCount} more for a full ${current.playersOnPitch}v${current.playersOnPitch} lineup, or continue with fewer."
+                    else -> null
+                }?.let { warning ->
+                    Text(
+                        warning,
+                        color = if (summary.selectedCount == 0) MaterialTheme.colorScheme.error
+                        else MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+                AppButton(
                     enabled = summary.canContinue,
                     onClick = { nav.navigate("lineup/$matchId") },
                     modifier = Modifier.fillMaxWidth()
@@ -204,7 +190,7 @@ private fun SummaryPill(value: String, label: String, modifier: Modifier = Modif
     Surface(
         modifier = modifier,
         shape = MaterialTheme.shapes.medium,
-        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.72f)
+        color = MaterialTheme.colorScheme.surfaceContainerHighest
     ) {
         Column(
             Modifier.padding(vertical = 8.dp),
@@ -226,7 +212,7 @@ private fun SquadPlayerCard(
 ) {
     var statusMenu by remember { mutableStateOf(false) }
     val selectable = availability == AvailabilityStatus.AVAILABLE
-    Card(
+    AppCard(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(enabled = selectable) { onSelectedChanged(!selected) },
@@ -265,10 +251,9 @@ private fun SquadPlayerCard(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
-                Text(
-                    player.position.ifBlank { "Position not set" },
-                    style = MaterialTheme.typography.bodySmall
-                )
+                if (player.position.isNotBlank()) {
+                    Text(player.position, style = MaterialTheme.typography.bodySmall)
+                }
             }
             Box {
                 AssistChip(

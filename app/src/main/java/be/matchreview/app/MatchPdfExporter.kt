@@ -1,6 +1,5 @@
 package be.matchreview.app
 
-import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
@@ -8,6 +7,7 @@ import android.graphics.RectF
 import android.graphics.Typeface
 import android.graphics.pdf.PdfDocument
 import be.matchreview.app.data.GameMatch
+import be.matchreview.app.data.MatchLineupPlacement
 import be.matchreview.app.data.MatchEvent
 import be.matchreview.app.data.Player
 import be.matchreview.app.data.PlayerParticipation
@@ -15,6 +15,9 @@ import be.matchreview.app.data.RecordingSegment
 import be.matchreview.app.data.Team
 import be.matchreview.app.domain.GoalMouthGeometry
 import be.matchreview.app.domain.GoalSummaryRules
+import be.matchreview.app.domain.MatchActions
+import be.matchreview.app.domain.MatchStatsRules
+import be.matchreview.app.domain.StartingLineupRules
 import be.matchreview.app.domain.TimelineGrouping
 import be.matchreview.app.domain.TimelineItem
 import be.matchreview.app.domain.VideoEventRules
@@ -27,10 +30,7 @@ import kotlin.math.max
  * No network connection or third-party PDF service is involved.
  */
 object MatchPdfExporter {
-    private const val PAGE_WIDTH = 595
-    private const val PAGE_HEIGHT = 842
-    private const val MARGIN = 42f
-    private const val CONTENT_WIDTH = PAGE_WIDTH - (MARGIN * 2)
+    private const val MARGIN = PdfLayout.MARGIN
 
     fun fileName(match: GameMatch): String {
         val opponent = match.opponent
@@ -49,7 +49,8 @@ object MatchPdfExporter {
         players: List<Player>,
         events: List<MatchEvent>,
         participations: List<PlayerParticipation>,
-        recordings: List<RecordingSegment>
+        recordings: List<RecordingSegment>,
+        lineup: List<MatchLineupPlacement> = emptyList()
     ) {
         val document = PdfDocument()
         try {
@@ -87,9 +88,24 @@ object MatchPdfExporter {
             )
             if (match.teamRating > 0) writer.labelValue("Team rating", "${match.teamRating}/10")
 
+            val stats = MatchStatsRules.compute(events)
+            if (stats.hasDetail) {
+                writer.section("Match stats")
+                writer.table(
+                    headers = listOf("", teamName, match.opponent),
+                    rows = MatchStatsRules.rows(stats).map { (label, ours, theirs) ->
+                        listOf(label, ours.toString(), theirs.toString())
+                    },
+                    weights = listOf(2f, 1.5f, 1.5f)
+                )
+            }
+
             val (videoTags, matchEvents) = events
                 .sortedWith(compareBy<MatchEvent> { it.timestampMs }.thenBy { it.id })
                 .partition(VideoEventRules::isImportedVideoTag)
+            // The lineup pictures start with the starting lineup, rebuilt for older matches.
+            val lineupEvents = StartingLineupRules.withStartingLineup(match.id, matchEvents, participations, lineup)
+                .sortedWith(compareBy<MatchEvent> { it.timestampMs }.thenBy { it.id })
             writer.section("Timeline")
             if (matchEvents.isEmpty()) {
                 writer.text("No events recorded.")
@@ -102,8 +118,10 @@ object MatchPdfExporter {
                         ).joinToString(", ")
                         val detail = listOf(
                             "${formatTime(event.timestampMs)}  P${max(1, event.periodNumber)}",
-                            event.type.replace('_', ' ').lowercase()
-                                .replaceFirstChar { it.titlecase() },
+                            MatchActions.label(event.type)
+                                ?.let { if (MatchActions.isOpponent(event.type)) "${match.opponent}: ${it.lowercase()}" else it }
+                                ?: event.type.replace('_', ' ').lowercase()
+                                    .replaceFirstChar { it.titlecase() },
                             people,
                             event.note,
                             GoalMouthGeometry.describe(event.goalX, event.goalY)
@@ -130,10 +148,10 @@ object MatchPdfExporter {
             }
 
             val lineupChanges = TimelineGrouping
-                .group(matchEvents)
+                .group(lineupEvents)
                 .filterIsInstance<TimelineItem.LineupChange>()
             if (lineupChanges.isNotEmpty()) {
-                writer.section("Lineup changes")
+                writer.section("Starting lineup and changes")
                 writer.text("Highlighted players came on at that moment.", small = true)
                 lineupChanges.chunked(3).forEach { row ->
                     writer.block(PITCH_HEIGHT + 30f) { canvas, top ->
@@ -230,7 +248,12 @@ object MatchPdfExporter {
             typeface = Typeface.create(Typeface.SANS_SERIF, Typeface.BOLD)
         }
         val pitch = RectF(left, top + 14f, left + PITCH_WIDTH, top + 14f + PITCH_HEIGHT)
-        canvas.drawText(formatTime(change.timestampMs), left, top + 10f, caption)
+        val label = when {
+            change.isStartingLineup && change.isApproximate -> "Start (approximate)"
+            change.isStartingLineup -> "Start"
+            else -> formatTime(change.timestampMs)
+        }
+        canvas.drawText(label, left, top + 10f, caption)
         canvas.drawRect(pitch, grass)
         canvas.drawRect(pitch, line)
         canvas.drawLine(pitch.left, pitch.centerY(), pitch.right, pitch.centerY(), line)
@@ -249,7 +272,7 @@ object MatchPdfExporter {
             typeface = Typeface.create(Typeface.SANS_SERIF, Typeface.BOLD)
         }
         val name = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.WHITE
+            color = Color.BLACK
             textSize = 6.5f
             textAlign = Paint.Align.CENTER
         }
@@ -310,151 +333,5 @@ object MatchPdfExporter {
         val totalMinutes = milliseconds.coerceAtLeast(0L) / 60_000L
         val seconds = (milliseconds.coerceAtLeast(0L) / 1_000L) % 60L
         return if (seconds == 0L) "$totalMinutes min" else "$totalMinutes min ${seconds}s"
-    }
-
-    private class PdfWriter(private val document: PdfDocument) {
-        private val body = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.rgb(32, 42, 52)
-            textSize = 11f
-            typeface = Typeface.create(Typeface.SANS_SERIF, Typeface.NORMAL)
-        }
-        private val bold = Paint(body).apply {
-            typeface = Typeface.create(Typeface.SANS_SERIF, Typeface.BOLD)
-        }
-        private val title = Paint(bold).apply { textSize = 22f }
-        private val section = Paint(bold).apply {
-            textSize = 15f
-            color = Color.rgb(8, 127, 91)
-        }
-        private val small = Paint(body).apply {
-            textSize = 9f
-            color = Color.DKGRAY
-        }
-
-        private var pageNumber = 0
-        private var page: PdfDocument.Page? = null
-        private var canvas: Canvas? = null
-        private var y = MARGIN
-
-        init {
-            newPage()
-        }
-
-        /** Draws the team logo in the top-right corner of the current page. */
-        fun logo(bitmap: Bitmap) {
-            val size = 58f
-            val scale = size / maxOf(bitmap.width, bitmap.height).coerceAtLeast(1)
-            val width = bitmap.width * scale
-            val height = bitmap.height * scale
-            val left = PAGE_WIDTH - MARGIN - width
-            canvas!!.drawBitmap(
-                bitmap,
-                null,
-                RectF(left, y, left + width, y + height),
-                Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
-            )
-        }
-
-        /** Reserves [height] points on one page and lets [draw] paint into it. */
-        fun block(height: Float, draw: (Canvas, Float) -> Unit) {
-            ensureSpace(height)
-            draw(canvas!!, y)
-            y += height
-        }
-
-        fun heading(value: String) {
-            ensureSpace(34f)
-            canvas!!.drawText(value, MARGIN, y + title.textSize, title)
-            y += 34f
-        }
-
-        fun section(value: String) {
-            ensureSpace(36f)
-            y += 10f
-            canvas!!.drawLine(MARGIN, y, PAGE_WIDTH - MARGIN, y, section)
-            y += 7f
-            canvas!!.drawText(value, MARGIN, y + section.textSize, section)
-            y += 24f
-        }
-
-        fun labelValue(label: String, value: String) {
-            val lines = wrap(value, body, CONTENT_WIDTH - 100f)
-            ensureSpace(18f * lines.size)
-            canvas!!.drawText("$label:", MARGIN, y + body.textSize, bold)
-            lines.forEach { line ->
-                canvas!!.drawText(line, MARGIN + 100f, y + body.textSize, body)
-                y += 18f
-            }
-        }
-
-        fun bullet(value: String) {
-            text("• $value", indent = 12f)
-        }
-
-        fun text(
-            value: String,
-            emphasized: Boolean = false,
-            small: Boolean = false,
-            indent: Float = 0f
-        ) {
-            val paint = when {
-                emphasized -> bold
-                small -> this.small
-                else -> body
-            }
-            val lineHeight = paint.textSize + 5f
-            val paragraphs = value.replace("\r", "").split("\n")
-            paragraphs.forEach { paragraph ->
-                val lines = wrap(paragraph.ifBlank { " " }, paint, CONTENT_WIDTH - indent)
-                lines.forEach { line ->
-                    ensureSpace(lineHeight)
-                    canvas!!.drawText(line, MARGIN + indent, y + paint.textSize, paint)
-                    y += lineHeight
-                }
-            }
-        }
-
-        fun spacer(height: Float) {
-            ensureSpace(height)
-            y += height
-        }
-
-        fun finish() {
-            page?.let(document::finishPage)
-            page = null
-            canvas = null
-        }
-
-        private fun ensureSpace(required: Float) {
-            if (y + required > PAGE_HEIGHT - MARGIN) newPage()
-        }
-
-        private fun newPage() {
-            page?.let(document::finishPage)
-            pageNumber++
-            page = document.startPage(
-                PdfDocument.PageInfo.Builder(PAGE_WIDTH, PAGE_HEIGHT, pageNumber).create()
-            )
-            canvas = page!!.canvas
-            y = MARGIN
-            canvas!!.drawText("MatchReview", MARGIN, 24f, small)
-            canvas!!.drawText("Page $pageNumber", PAGE_WIDTH - MARGIN - 35f, 24f, small)
-        }
-
-        private fun wrap(value: String, paint: Paint, width: Float): List<String> {
-            if (value.isEmpty()) return listOf("")
-            val result = mutableListOf<String>()
-            var remaining = value.trim()
-            while (remaining.isNotEmpty()) {
-                var count = paint.breakText(remaining, true, width, null).coerceAtLeast(1)
-                if (count < remaining.length) {
-                    val breakAt = remaining.lastIndexOf(' ', count - 1)
-                    if (breakAt > 0) count = breakAt
-                }
-                result += remaining.substring(0, count).trim()
-                remaining = remaining.substring(count).trimStart()
-            }
-            return result
-        }
     }
 }

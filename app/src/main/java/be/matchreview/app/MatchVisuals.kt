@@ -1,5 +1,7 @@
 package be.matchreview.app
 
+import be.matchreview.app.ui.AppCard
+import be.matchreview.app.ui.AppOutlinedButton
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -41,40 +43,44 @@ import java.util.Date
 import java.util.Locale
 import java.util.TimeZone
 
-private val SnapshotPitchGreen = Color(0xFF5FA63B)
 private val IncomingHighlight = Color(0xFFFFD54F)
 private val OurGoalColor = Color(0xFF2E7D32)
 private val OpponentGoalColor = Color(0xFFC62828)
 
-/** A small picture of the pitch after a lineup change; new players are highlighted. */
+/**
+ * A picture of the pitch after a lineup change, on its side so it fills the card width:
+ * our goal on the left, attacking to the right. New players are highlighted.
+ */
 @Composable
 fun LineupSnapshotPitch(
     change: TimelineItem.LineupChange,
     playersById: Map<Long, Player>,
-    modifier: Modifier = Modifier,
-    height: Dp = 230.dp
+    modifier: Modifier = Modifier
 ) {
     val incoming = change.incomingPlayerIds.toSet()
     val positions = change.snapshot
     BoxWithConstraints(
         modifier
-            .height(height)
-            .aspectRatio(0.72f)
+            .fillMaxWidth()
+            .aspectRatio(1.45f)
             .clip(RoundedCornerShape(12.dp))
-            .background(SnapshotPitchGreen)
+            .background(PitchColors.grass)
             .semantics {
                 contentDescription = "Lineup after the change: " +
                     positions.joinToString { playersById[it.playerId]?.name ?: "player" }
             }
     ) {
-        PitchLines(Modifier.fillMaxSize())
+        PitchLines(Modifier.fillMaxSize(), horizontal = true)
         val marker = 26.dp
+        val label = 56.dp
         positions.forEach { position ->
             val player = playersById[position.playerId]
-            val x = maxWidth * position.normalizedX.coerceIn(0.07f, 0.93f) - marker / 2
-            val y = maxHeight * position.normalizedY.coerceIn(0.06f, 0.92f) - marker / 2
+            // Depth on the pitch becomes left to right; the keeper ends up near the left goal.
+            val centerX = maxWidth * (1f - position.normalizedY).coerceIn(0.06f, 0.94f)
+            val centerY = maxHeight * position.normalizedX.coerceIn(0.1f, 0.9f)
+            val top = (centerY - marker / 2).coerceIn(0.dp, (maxHeight - marker - 14.dp).coerceAtLeast(0.dp))
             Column(
-                Modifier.offset(x = x - 8.dp, y = y).width(marker + 16.dp),
+                Modifier.offset(x = centerX - label / 2, y = top).width(label),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 val isNew = position.playerId in incoming
@@ -96,8 +102,9 @@ fun LineupSnapshotPitch(
                 }
                 Text(
                     player?.name?.substringBefore(" ") ?: "",
-                    color = Color.White,
+                    color = Color.Black,
                     fontSize = 9.sp,
+                    lineHeight = 10.sp,
                     fontWeight = FontWeight.Bold,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
@@ -117,17 +124,18 @@ fun LineupChangeCard(
 ) {
     fun names(ids: List<Long>) = ids.joinToString(", ") { playersById[it]?.name ?: "Player" }
     val title = when {
+        change.isStartingLineup -> if (change.isApproximate) "Starting lineup (approximate)" else "Starting lineup"
         change.events.all { it.type == "POSITION_CHANGE" } -> "Positions changed"
         change.events.any { it.type == "DISMISSAL" } -> "Dismissal"
         change.events.any { it.type == "INJURY_OFF" } -> "Injury"
         else -> "Substitution" + if (change.events.size > 1) "s" else ""
     }
-    Card(modifier.fillMaxWidth()) {
+    AppCard(modifier.fillMaxWidth()) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Surface(shape = CircleShape, color = MaterialTheme.colorScheme.primaryContainer) {
                     Text(
-                        MatchClockCalculator.formatClock(change.timestampMs),
+                        if (change.isStartingLineup) "Start" else MatchClockCalculator.formatClock(change.timestampMs),
                         modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
                         fontWeight = FontWeight.Bold
                     )
@@ -144,11 +152,7 @@ fun LineupChangeCard(
                 }
                 trailing()
             }
-            LineupSnapshotPitch(
-                change = change,
-                playersById = playersById,
-                modifier = Modifier.align(Alignment.CenterHorizontally)
-            )
+            LineupSnapshotPitch(change = change, playersById = playersById)
         }
     }
 }
@@ -345,7 +349,7 @@ fun MatchDetailsDialog(
                     isError = opponent.isBlank(),
                     modifier = Modifier.fillMaxWidth()
                 )
-                OutlinedButton(
+                AppOutlinedButton(
                     onClick = { showDatePicker = true },
                     modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
                 ) {

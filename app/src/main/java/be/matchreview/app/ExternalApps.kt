@@ -48,4 +48,14 @@ object ExternalApps {
             Intent.createChooser(send, title).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         )
     }
+
+    /** Opens the share sheet for content that already exists, such as a saved video. */
+    fun share(context: Context, uri: Uri, mimeType: String, title: String) {
+        val send = Intent(Intent.ACTION_SEND)
+            .setType(mimeType)
+            .putExtra(Intent.EXTRA_STREAM, uri)
+            .putExtra(Intent.EXTRA_SUBJECT, title)
+            .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        context.startActivity(Intent.createChooser(send, title).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+    }
 }

@@ -1,11 +1,16 @@
 package be.matchreview.app
 
+import be.matchreview.app.ui.AppCard
+import be.matchreview.app.ui.AppButtons
+import be.matchreview.app.ui.AppButton
+import be.matchreview.app.ui.AppOutlinedButton
 import android.os.StatFs
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -51,17 +56,19 @@ fun MatchReadinessScreen(
     val fullLineup = starters.size == current.playersOnPitch
 
     Column(
-        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp)
+        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        Text("Match-day check", style = MaterialTheme.typography.headlineMedium)
-        Text(
-            "${selectedPlayers.size} selected • ${starters.size}/${current.playersOnPitch} starting",
-            style = MaterialTheme.typography.titleMedium
-        )
-
-        Card(Modifier.fillMaxWidth()) {
+        AppCard(Modifier.fillMaxWidth()) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        "${selectedPlayers.size} selected • ${starters.size}/${current.playersOnPitch} starting",
+                        style = MaterialTheme.typography.titleMedium,
+                        modifier = Modifier.weight(1f)
+                    )
+                    TextButton(onClick = { showDetailsEditor = true }) { Text("Edit") }
+                }
                 ReadinessRow("Opponent", current.opponent)
                 ReadinessRow("Format", "${current.playersOnPitch}v${current.playersOnPitch}")
                 ReadinessRow("Formation", current.formation)
@@ -70,42 +77,41 @@ fun MatchReadinessScreen(
                 ReadinessRow("Date", current.matchDate)
                 ReadinessRow("Home or away", if (current.isHome) "Home" else "Away")
                 ReadinessRow("Competition", current.competition.ifBlank { "Not specified" })
-                TextButton(onClick = { showDetailsEditor = true }) { Text("Edit match details") }
                 ReadinessRow("Storage", freeStorageLabel)
             }
         }
 
-        if (!fullLineup) {
-            AssistChip(
-                onClick = { nav.navigate("lineup/$matchId") },
-                label = { Text("Starting lineup is underfilled — review") }
-            )
-        }
-        if (!goalkeeperReady) {
-            AssistChip(
-                onClick = { nav.navigate("lineup/$matchId") },
-                label = { Text("No goalkeeper role detected — review") }
-            )
+        listOfNotNull(
+            "The starting lineup is not full".takeIf { !fullLineup },
+            "No goalkeeper in the starting lineup".takeIf { !goalkeeperReady }
+        ).forEach { warning ->
+            Surface(
+                color = MaterialTheme.colorScheme.errorContainer,
+                shape = MaterialTheme.shapes.small,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    Modifier.padding(start = 16.dp, end = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(warning, modifier = Modifier.weight(1f))
+                    TextButton(onClick = { nav.navigate("lineup/$matchId") }) { Text("Fix") }
+                }
+            }
         }
 
-        Text(
-            "Camera audio starts off. You can enable it from the Camera tab if the club has permission to record sound.",
-            style = MaterialTheme.typography.bodySmall
-        )
-
-        Spacer(Modifier.height(8.dp))
-        OutlinedButton(
+        AppOutlinedButton(
             onClick = { nav.navigate("lineup/$matchId") },
-            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
+            modifier = Modifier.fillMaxWidth()
         ) { Text("Review lineup") }
-        Button(
+        AppButton(
             onClick = {
                 nav.navigate("live/$matchId") {
                     popUpTo("ready/$matchId") { inclusive = true }
                 }
             },
             enabled = starters.isNotEmpty(),
-            modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp)
+            modifier = Modifier.fillMaxWidth().heightIn(min = AppButtons.LargeHeight)
         ) { Text("Open match day") }
     }
 

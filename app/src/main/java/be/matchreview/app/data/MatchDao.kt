@@ -1,9 +1,12 @@
 package be.matchreview.app.data
 
 import androidx.room.*
+import be.matchreview.app.domain.FormationLayout
 import be.matchreview.app.domain.LineupSnapshot
+import be.matchreview.app.domain.LineupUndoRules
 import be.matchreview.app.domain.MatchClockCalculator
 import be.matchreview.app.domain.PracticeMatchRules
+import be.matchreview.app.domain.StartingLineupRules
 import be.matchreview.app.domain.SubstitutionPlanRules
 import be.matchreview.app.domain.VideoEventRules
 import kotlinx.coroutines.flow.Flow
@@ -146,6 +149,15 @@ interface MatchDao {
 
     @Query("SELECT * FROM events WHERE id = :eventId LIMIT 1")
     suspend fun getEventOnce(eventId: Long): MatchEvent?
+
+    @Query("SELECT * FROM events WHERE matchId = :matchId ORDER BY timestampMs, id")
+    suspend fun getEventsOnce(matchId: Long): List<MatchEvent>
+
+    @Query("SELECT * FROM player_participations WHERE matchId = :matchId ORDER BY id")
+    suspend fun getParticipationsOnce(matchId: Long): List<PlayerParticipation>
+
+    @Query("DELETE FROM player_participations WHERE id = :participationId")
+    suspend fun deleteParticipationById(participationId: Long)
 
     @Query("""
         SELECT * FROM events
@@ -303,7 +315,8 @@ interface MatchDao {
     @Query("""
         SELECT e.* FROM events e
         INNER JOIN matches m ON m.id = e.matchId
-        WHERE m.teamId = :teamId AND e.type IN ('OUR_GOAL', 'KEEPER_SAVE')
+        WHERE m.teamId = :teamId
+          AND e.type IN ('OUR_GOAL', 'KEEPER_SAVE', 'YELLOW_CARD', 'RED_CARD', 'DISMISSAL')
     """)
     fun observeTeamStatEvents(teamId: Long): Flow<List<MatchEvent>>
 
@@ -463,6 +476,19 @@ interface MatchDao {
                     entryReason = ParticipationReason.STARTER
                 )
             })
+            // Keep a picture of the starting positions; later lineup changes only store
+            // the situation after each change.
+            insertEventWithVideoLink(
+                MatchEvent(
+                    matchId = matchId,
+                    timestampMs = match.accumulatedMatchTimeMs,
+                    type = StartingLineupRules.KICK_OFF,
+                    note = "Starting lineup",
+                    periodNumber = 1,
+                    occurredAtEpochMs = wallClockNowMs,
+                    lineupSnapshot = LineupSnapshot.encode(starters)
+                )
+            )
         }
         updateMatch(
             match.copy(
@@ -852,6 +878,88 @@ interface MatchDao {
         return true
     }
 
+    /**
+     * Undoes the latest lineup change of the current period, as if it never happened: the
+     * previous lineup returns, substitutes lose the minutes since the change, the players
+     * they replaced keep playing, and the change's events are removed.
+     * Returns false when there is no change that can still be undone.
+     */
+    @Transaction
+    suspend fun undoLatestLineupChange(matchId: Long): Boolean {
+        val match = getMatchOnce(matchId) ?: return false
+        if (match.status !in listOf(MatchStatus.LIVE, MatchStatus.PAUSED, MatchStatus.PERIOD_ENDED)) return false
+        val lineup = getLineupOnce(matchId)
+        val plan = LineupUndoRules.plan(getEventsOnce(matchId), lineup) ?: return false
+        if (plan.periodNumber != match.currentPeriod) return false
+        val countsMinutes = match.status in listOf(MatchStatus.LIVE, MatchStatus.PAUSED)
+        if (!countsMinutes) {
+            // During an interval only changes made after the period ended can be undone; earlier
+            // ones were already closed off by the period end.
+            val periodEnd = getPeriodOnce(matchId, match.currentPeriod)?.endMatchTimeMs
+            if (periodEnd != null && plan.roundTimeMs < periodEnd) return false
+        }
+
+        val before = plan.before.associateBy { it.playerId }
+        val slots = FormationLayout.slots(match.formation, match.playersOnPitch)
+        upsertLineupPlacements(lineup.mapNotNull { placement ->
+            val position = before[placement.playerId]
+            when {
+                position != null -> {
+                    val slot = slots.firstOrNull {
+                        kotlin.math.abs(it.normalizedX - position.normalizedX) < 0.002f &&
+                            kotlin.math.abs(it.normalizedY - position.normalizedY) < 0.002f
+                    }
+                    placement.copy(
+                        normalizedX = position.normalizedX,
+                        normalizedY = position.normalizedY,
+                        formationSlot = slot?.id ?: "",
+                        role = slot?.label ?: placement.role,
+                        onPitch = true
+                    )
+                }
+                placement.onPitch -> placement.copy(onPitch = false, formationSlot = "", role = "")
+                else -> null
+            }
+        })
+        getMatchSquadOnce(matchId).filter { it.selected }.forEach { squadPlayer ->
+            val nowOnPitch = squadPlayer.playerId in before
+            val wasOnPitch = squadPlayer.state == PlayerMatchState.ON_PITCH
+            val leftInRound = plan.roundEvents.any { it.playerId == squadPlayer.playerId }
+            when {
+                nowOnPitch && squadPlayer.state != PlayerMatchState.ON_PITCH ->
+                    upsertMatchSquadPlayer(squadPlayer.copy(state = PlayerMatchState.ON_PITCH))
+                !nowOnPitch && (wasOnPitch || leftInRound) && squadPlayer.state != PlayerMatchState.BENCH ->
+                    upsertMatchSquadPlayer(squadPlayer.copy(state = PlayerMatchState.BENCH))
+            }
+        }
+        if (countsMinutes) {
+            val participations = getParticipationsOnce(matchId)
+            val exitReasons = setOf(
+                ParticipationReason.SUBSTITUTION,
+                ParticipationReason.BENCH,
+                ParticipationReason.INJURY,
+                ParticipationReason.DISMISSAL
+            )
+            participations
+                .filter {
+                    it.startMatchTimeMs == plan.roundTimeMs &&
+                        it.entryReason == ParticipationReason.SUBSTITUTION &&
+                        it.playerId !in before
+                }
+                .forEach { deleteParticipationById(it.id) }
+            participations
+                .filter {
+                    it.endMatchTimeMs == plan.roundTimeMs &&
+                        it.exitReason in exitReasons &&
+                        it.playerId in before &&
+                        participations.none { other -> other.playerId == it.playerId && other.endMatchTimeMs == null }
+                }
+                .forEach { updateParticipation(it.copy(endMatchTimeMs = null, exitReason = null)) }
+        }
+        plan.roundEvents.forEach { deleteEventById(it.id) }
+        return true
+    }
+
     @Transaction
     suspend fun removePlayerFromPitch(
         matchId: Long,
@@ -1042,6 +1150,40 @@ interface MatchDao {
         )
         refreshScoreFromEvents(matchId)
         return eventId
+    }
+
+    /** Records a quick match action (shot, corner or card) at the current match time. */
+    @Transaction
+    suspend fun recordMatchAction(
+        matchId: Long,
+        type: String,
+        playerId: Long?,
+        monotonicNowMs: Long,
+        wallClockNowMs: Long
+    ): Long? {
+        val match = getMatchOnce(matchId) ?: return null
+        if (match.status !in listOf(
+                MatchStatus.LIVE,
+                MatchStatus.PAUSED,
+                MatchStatus.PERIOD_ENDED
+            )
+        ) return null
+        val currentTime = liveActionTime(
+            match,
+            getOpenClockSegment(matchId),
+            monotonicNowMs,
+            wallClockNowMs
+        )
+        return insertEventWithVideoLink(
+            MatchEvent(
+                matchId = matchId,
+                playerId = playerId,
+                timestampMs = currentTime,
+                type = type,
+                periodNumber = match.currentPeriod,
+                occurredAtEpochMs = wallClockNowMs
+            )
+        )
     }
 
     @Transaction

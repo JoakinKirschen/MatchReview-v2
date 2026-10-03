@@ -6,6 +6,7 @@
     <string name="navigate_back">Back</string>
     <string name="our_goal">Our goal</string>
     <string name="opponent_goal">Opponent goal</string>
+    <string name="their_goal">Their goal</string>
     <string name="undo">Undo</string>
     <string name="keeper_save">Save</string>
     <string name="substitute">Substitute</string>

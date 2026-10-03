@@ -15,8 +15,7 @@ class LaunchAccessibilityTest {
 
     @Test
     fun dashboardExposesNamedPrimaryActions() {
-        rule.onNodeWithText("Coach dashboard").assertIsDisplayed()
-        rule.onNodeWithText("Create a match").assertIsDisplayed()
-        rule.onNodeWithText("Create a team").assertIsDisplayed()
+        rule.onNodeWithText("New match").assertIsDisplayed()
+        rule.onNodeWithText("Teams").assertIsDisplayed()
     }
 }

@@ -1,6 +1,7 @@
 package be.matchreview.app
 
 import android.app.Application
+import be.matchreview.app.backup.AutoBackupController
 import be.matchreview.app.backup.MatchBackupManager
 import be.matchreview.app.data.AppDatabase
 import be.matchreview.app.data.MatchRepository
@@ -15,6 +16,7 @@ class MatchReviewApplication : Application() {
     val database by lazy { AppDatabase.create(this) }
     val repository by lazy { MatchRepository(database.matchDao()) }
     val backupManager by lazy { MatchBackupManager(this, database) }
+    val autoBackup by lazy { AutoBackupController(this, backupManager, applicationScope) }
 
     override fun onCreate() {
         super.onCreate()
