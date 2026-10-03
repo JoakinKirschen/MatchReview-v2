@@ -14,6 +14,7 @@ import be.matchreview.app.data.PlayerParticipation
 import be.matchreview.app.data.RecordingSegment
 import be.matchreview.app.data.Team
 import be.matchreview.app.domain.GoalMouthGeometry
+import be.matchreview.app.domain.GoalSummaryRules
 import be.matchreview.app.domain.TimelineGrouping
 import be.matchreview.app.domain.TimelineItem
 import be.matchreview.app.domain.VideoEventRules
@@ -70,6 +71,8 @@ object MatchPdfExporter {
                 .joinToString("  |  "))
             writer.spacer(5f)
             writer.labelValue("Score", "${match.ourScore} - ${match.opponentScore}")
+            val goalLines = GoalSummaryRules.lines(events, names, teamName, match.opponent)
+            if (goalLines.isNotEmpty()) writer.labelValue("Goals", goalLines.joinToString(", "))
             writer.labelValue("Status", match.status.name.replace('_', ' ').lowercase()
                 .replaceFirstChar { it.titlecase() })
             writer.labelValue("Match size", "${match.playersOnPitch}v${match.playersOnPitch}")
@@ -375,10 +378,13 @@ object MatchPdfExporter {
         }
 
         fun labelValue(label: String, value: String) {
-            ensureSpace(18f)
+            val lines = wrap(value, body, CONTENT_WIDTH - 100f)
+            ensureSpace(18f * lines.size)
             canvas!!.drawText("$label:", MARGIN, y + body.textSize, bold)
-            canvas!!.drawText(value, MARGIN + 100f, y + body.textSize, body)
-            y += 18f
+            lines.forEach { line ->
+                canvas!!.drawText(line, MARGIN + 100f, y + body.textSize, body)
+                y += 18f
+            }
         }
 
         fun bullet(value: String) {
