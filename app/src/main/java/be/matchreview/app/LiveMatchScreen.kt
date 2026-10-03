@@ -230,6 +230,8 @@ fun LiveMatchScreen(
     var selectedVideoEvent by remember { mutableStateOf<MatchEvent?>(null) }
     var pendingGoalDeletion by remember { mutableStateOf<MatchEvent?>(null) }
     var pendingQuickGoalEditId by remember { mutableStateOf<Long?>(null) }
+    /** A quick goal waiting for its scorer (scorerChosen = false) or its assist. */
+    var goalDetails by remember { mutableStateOf<QuickGoalDetails?>(null) }
     var showEndPeriodConfirmation by remember { mutableStateOf(false) }
     var liveActionLocked by remember { mutableStateOf(false) }
     var substitutionMode by remember { mutableStateOf(false) }
@@ -822,7 +824,8 @@ fun LiveMatchScreen(
     goalPlacement?.let { request ->
         fun close() {
             goalPlacement = null
-            if (request.offerScorerDetails) offerQuickGoalDetails(request.eventId)
+            // Straight on to the scorer, so goals are not left unassigned.
+            if (request.offerScorerDetails) goalDetails = QuickGoalDetails(request.eventId)
         }
         GoalPlacementDialog(
             title = request.title,
@@ -834,6 +837,42 @@ fun LiveMatchScreen(
                 close()
             }
         )
+    }
+
+    goalDetails?.let { details ->
+        val onPitchIds = onPitch.map { it.playerId }
+        fun save(scorerId: Long?, assistId: Long?) {
+            goalDetails = null
+            val event = events.firstOrNull { it.id == details.eventId } ?: return
+            vm.updateOurGoal(event.id, scorerId, assistId, event.timestampMs)
+        }
+        if (!details.scorerChosen) {
+            PlayerChoiceSheet(
+                title = "Who scored?",
+                playerIds = onPitchIds,
+                playersById = playersById,
+                includeNone = true,
+                noneLabel = "Scorer not known",
+                onDismiss = {
+                    goalDetails = null
+                    offerQuickGoalDetails(details.eventId)
+                },
+                onSelect = { scorerId ->
+                    if (scorerId == null) save(null, null)
+                    else goalDetails = details.copy(scorerChosen = true, scorerId = scorerId)
+                }
+            )
+        } else {
+            PlayerChoiceSheet(
+                title = "Assist by?",
+                playerIds = onPitchIds.filter { it != details.scorerId },
+                playersById = playersById,
+                includeNone = true,
+                noneLabel = "No assist",
+                onDismiss = { save(details.scorerId, null) },
+                onSelect = { assistId -> save(details.scorerId, assistId) }
+            )
+        }
     }
 
     if (actionsSheetOpen) {
@@ -1780,6 +1819,12 @@ private fun statusLabel(match: GameMatch): String = when (match.status) {
     MatchStatus.FINISHED -> "Finished"
     else -> match.status.name.lowercase().replaceFirstChar { it.uppercase() }
 }
+
+private data class QuickGoalDetails(
+    val eventId: Long,
+    val scorerChosen: Boolean = false,
+    val scorerId: Long? = null
+)
 
 /** An action waiting for the coach to pick the player involved. */
 private data class PendingPlayerAction(
