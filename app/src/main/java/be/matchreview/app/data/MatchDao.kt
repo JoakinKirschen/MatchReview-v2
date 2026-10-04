@@ -1227,18 +1227,21 @@ interface MatchDao {
         correctedTimestampMs: Long
     ) {
         val event = getEventOnce(eventId) ?: return
-        if (event.type != "OUR_GOAL") return
-        if (scorerPlayerId != null && scorerPlayerId == assistPlayerId) return
+        if (event.type != "OUR_GOAL" && event.type != "OPPONENT_GOAL") return
+        // Opponent goals have no scorer or assist; only their time changes.
+        val ours = event.type == "OUR_GOAL"
+        if (ours && scorerPlayerId != null && scorerPlayerId == assistPlayerId) return
         val correctedTime = correctedTimestampMs.coerceAtLeast(0L)
         updateEventWithVideoLink(
             event.copy(
-                playerId = scorerPlayerId,
-                relatedPlayerId = assistPlayerId,
+                playerId = if (ours) scorerPlayerId else null,
+                relatedPlayerId = if (ours) assistPlayerId else null,
                 timestampMs = correctedTime,
                 // Keep the precise wall-clock anchor so the goal stays linked to the
                 // right moment in the video; shift it by the same amount as the clock.
                 occurredAtEpochMs = event.occurredAtEpochMs?.plus(correctedTime - event.timestampMs),
-                note = if (scorerPlayerId == null) "Goal added by score correction" else ""
+                note = if (!ours) event.note
+                else if (scorerPlayerId == null) "Goal added by score correction" else ""
             )
         )
         refreshScoreFromEvents(event.matchId)
