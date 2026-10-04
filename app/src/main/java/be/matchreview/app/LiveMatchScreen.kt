@@ -813,7 +813,8 @@ fun LiveMatchScreen(
                 editGoal = null
                 goalPlacement = GoalPlacementRequest(
                     eventId = event.id,
-                    title = "Where did $teamName score?",
+                    title = if (event.type == "OPPONENT_GOAL") "Where did ${current.opponent} score?"
+                    else "Where did $teamName score?",
                     initialX = event.goalX,
                     initialY = event.goalY
                 )
@@ -1254,12 +1255,19 @@ private fun GoalEditSheet(
             Modifier.fillMaxWidth().padding(horizontal = 18.dp).padding(bottom = 28.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            Text("Edit goal", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-            AppOutlinedButton(onClick = { choosingScorer = true }, modifier = Modifier.fillMaxWidth()) {
-                Text("Scorer: ${byId[scorer]?.name ?: "Unknown"}")
-            }
-            AppOutlinedButton(onClick = { choosingAssist = true }, modifier = Modifier.fillMaxWidth()) {
-                Text("Assist: ${byId[assist]?.name ?: "None"}")
+            val ours = event.type == "OUR_GOAL"
+            Text(
+                if (ours) "Edit goal" else "Edit opponent goal",
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold
+            )
+            if (ours) {
+                AppOutlinedButton(onClick = { choosingScorer = true }, modifier = Modifier.fillMaxWidth()) {
+                    Text("Scorer: ${byId[scorer]?.name ?: "Unknown"}")
+                }
+                AppOutlinedButton(onClick = { choosingAssist = true }, modifier = Modifier.fillMaxWidth()) {
+                    Text("Assist: ${byId[assist]?.name ?: "None"}")
+                }
             }
             AppOutlinedButton(onClick = onEditPosition, modifier = Modifier.fillMaxWidth()) {
                 Text(
@@ -1478,10 +1486,8 @@ private fun TimelineEventCard(
             }
             Column(horizontalAlignment = Alignment.End) {
                 ClipButton(event, recordings, onPlayEvent)
-                if (event.type == "OUR_GOAL") {
+                if (scoring) {
                     TextButton(onClick = { onEditGoal(event) }) { Text("Edit") }
-                } else if (event.type == "OPPONENT_GOAL") {
-                    TextButton(onClick = { onEditGoalPosition(event) }) { Text("Position") }
                 }
                 if (scoring) {
                     TextButton(onClick = { onDeleteGoal(event) }) {

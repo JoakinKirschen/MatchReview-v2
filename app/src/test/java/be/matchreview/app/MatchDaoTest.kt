@@ -410,6 +410,19 @@ class MatchDaoTest {
         assertEquals(0, dao.getMatchOnce(fixture.matchId)!!.opponentScore)
     }
 
+    @Test
+    fun opponentGoalTimeCanBeEditedWithoutAScorer() = runBlocking {
+        val fixture = liveMatch()
+        val goalId = dao.recordOpponentGoal(fixture.matchId, KICK_OFF_MONOTONIC + 90_000, KICK_OFF_WALL + 90_000)!!
+
+        dao.updateOurGoal(goalId, fixture.playerIds[0], null, 60_000)
+
+        val goal = dao.getEventOnce(goalId)!!
+        assertEquals(60_000L, goal.timestampMs)
+        assertNull(goal.playerId)
+        assertEquals(1, dao.getMatchOnce(fixture.matchId)!!.opponentScore)
+    }
+
     private companion object {
         const val KICK_OFF_MONOTONIC = 3_600_000L
         const val KICK_OFF_WALL = 1_790_000_000_000L
